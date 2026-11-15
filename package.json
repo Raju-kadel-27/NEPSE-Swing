@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "scrape": "tsx --env-file-if-exists=.env.local scripts/scrape.ts",
+    "scrape:check": "tsx --env-file-if-exists=.env.local scripts/check-scrape.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:import-json": "tsx --env-file-if-exists=.env.local scripts/import-json.ts",

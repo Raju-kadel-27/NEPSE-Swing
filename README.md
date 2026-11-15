@@ -28,7 +28,7 @@ Backfill source: [Aabishkar2/nepse-data](https://github.com/Aabishkar2/nepse-dat
 
 Scrape options: `--symbols=NABIL,CHDC`, `--limit=20`, `--max-age=7` (days), `--delay=2500` (ms, minimum 1500), `--prices-only`, `--no-results-check`.
 During each quarterly reporting window (quarter end to ~30 days after, see `lib/results.ts`), companies whose latest quarter isn't out yet are re-checked daily instead of weekly, so new results show up within a day.
-Run it once each trading day (Monday to Friday, after 3 pm NPT) to build price history.
+Run it once each trading day (Monday to Friday, after 3 pm NPT) to build price history. In production this is automatic: `.github/workflows/daily-scrape.yml` runs migrations, `npm run scrape` and `npm run scrape:check` against Neon at 4:00 pm NPT, Monday to Friday (needs the `DATABASE_URL` repo secret). A failed run opens a `scrape-failure` GitHub issue (emailed to you); the next good run closes it. `scrape:check` fails on a run error, more than half the company pages failing, or prices older than 7 days.
 
 ## Layout
 
