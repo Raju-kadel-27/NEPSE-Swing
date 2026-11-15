@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Candle, StockData } from "../types";
-import { levels, rankStocks } from "./index";
+import { planEntry } from "./entry";
+import { rankStocks } from "./index";
 import { scoreFundamental } from "./fundamental";
 import { MIN_TURNOVER, scoreRisk } from "./risk";
 import { scoreTechnical } from "./technical";
-import { scale } from "./util";
+import { r1, scale } from "./util";
 
 const candles = (closes: number[], volume = 50_000): Candle[] =>
   closes.map((c, i) => ({ date: `2026-01-${String((i % 28) + 1).padStart(2, "0")}`, open: c, high: c * 1.01, low: c * 0.99, close: c, volume }));
@@ -66,12 +67,42 @@ describe("risk", () => {
   });
 });
 
-describe("levels", () => {
-  it("puts stop below and target at 2R above", () => {
-    expect(levels(100, 4)).toEqual({ entryLow: 98, entryHigh: 101, stopLoss: 90, target: 120 });
+describe("planEntry", () => {
+  const one = (close: number, volume = 50_000): Candle[] => [{ date: "2026-11-13", open: close, high: close, low: close, close, volume }];
+  const base = { atr: 4, total: 75, excluded: false, spiked: false };
+
+  it("is ready when price sits just above support, with the zone anchored to support", () => {
+    const e = planEntry({ ...base, candles: one(102), snap: { avg120: 100, avg180: 90 } });
+    expect(e.signal).toBe("ready");
+    expect([e.entryLow, e.entryHigh]).toEqual([100, 104]);
+    expect(e.supportLabel).toBe("120-day average");
+    expect(e.stopLoss).toBe(96); // min(100 - 4, 104 - 8)
+    expect(e.target).toBe(120); // zone top 104 + 2 * 8
   });
-  it("caps target at +35%", () => {
-    expect(levels(100, 10).target).toBe(135);
+  it("waits when price is above the zone and says how far", () => {
+    const e = planEntry({ ...base, candles: one(110), snap: { avg120: 100, avg180: 90 } });
+    expect(e.signal).toBe("wait");
+    expect(e.aboveZonePct).toBeCloseTo(5.8, 1);
+  });
+  it("waits after a spike even inside the zone", () => {
+    expect(planEntry({ ...base, spiked: true, candles: one(102), snap: { avg120: 100 } }).signal).toBe("wait");
+  });
+  it("is not yet when price is below every support", () => {
+    const e = planEntry({ ...base, candles: one(90), snap: { avg120: 100, avg180: 105 } });
+    expect(e.signal).toBe("not_yet");
+    expect(e.note).toMatch(/120-day average/);
+  });
+  it("flags a breakout at a new high on heavy volume", () => {
+    const e = planEntry({ ...base, candles: one(120, 30_000), snap: { avg120: 100, high52: 120, avgVolume30: 10_000 } });
+    expect(e.signal).toBe("breakout");
+  });
+  it("avoids low scores and illiquid stocks regardless of price", () => {
+    expect(planEntry({ ...base, total: 50, candles: one(102), snap: { avg120: 100 } }).signal).toBe("avoid");
+    expect(planEntry({ ...base, excluded: true, candles: one(102), snap: { avg120: 100 } }).signal).toBe("avoid");
+  });
+  it("caps the target at +35% of the zone top", () => {
+    const e = planEntry({ ...base, atr: 20, candles: one(102), snap: { avg120: 100 } });
+    expect(e.target).toBe(r1(120 * 1.35));
   });
 });
 

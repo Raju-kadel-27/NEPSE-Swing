@@ -1,3 +1,7 @@
+import { Ban, CircleCheck, CircleDashed, Hourglass, Rocket } from "lucide-react";
+import { InfoTip } from "@/components/info-tip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SIGNAL_LABEL, type Signal } from "@/lib/scoring/entry";
 import { cn } from "@/lib/utils";
 
 export type Tone = "success" | "warning" | "destructive";
@@ -33,12 +37,12 @@ export function ScoreRing({ score, size = 56, className }: { score: number; size
   );
 }
 
-export function ScoreMeter({ label, score, weight }: { label: string; score: number; weight?: string }) {
+export function ScoreMeter({ label, score, tip }: { label: string; score: number; tip?: string }) {
   return (
     <div className="grid grid-cols-[6.5rem_1fr_2rem] items-center gap-3 text-xs">
-      <span className="text-muted-foreground">
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
         {label}
-        {weight && <span className="ml-1 text-muted-foreground/60">{weight}</span>}
+        {tip && <InfoTip text={tip} />}
       </span>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div className={cn("h-full rounded-full transition-all", bar[toneOf(score)])} style={{ width: `${score}%` }} />
@@ -54,6 +58,48 @@ export function ToneBadge({ score, excluded, className }: { score: number; exclu
     <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-xs font-medium ring-1 ring-inset", soft[tone], className)}>
       {verdictOf(score, excluded)}
     </span>
+  );
+}
+
+const SIGNAL_STYLE: Record<Signal, { cls: string; Icon: React.ElementType }> = {
+  ready: { cls: "bg-success text-white dark:text-background", Icon: CircleCheck },
+  breakout: { cls: "bg-primary text-primary-foreground", Icon: Rocket },
+  wait: { cls: "bg-warning/15 text-warning ring-1 ring-inset ring-warning/30", Icon: Hourglass },
+  not_yet: { cls: "bg-muted text-muted-foreground ring-1 ring-inset ring-border", Icon: CircleDashed },
+  avoid: { cls: "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20", Icon: Ban },
+};
+
+export function SignalBadge({ signal, className }: { signal: Signal; className?: string }) {
+  const { cls, Icon } = SIGNAL_STYLE[signal];
+  return (
+    <span className={cn("inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-semibold", cls, className)}>
+      <Icon className="size-3.5" />
+      {SIGNAL_LABEL[signal]}
+    </span>
+  );
+}
+
+// Visitor-facing names for the three sub-scores.
+export const PART_LABEL = { fundamental: "Company", technical: "Price trend", risk: "Safety" } as const;
+
+export function ScorePill({ p }: { p: { total: number; fundamental: number; technical: number; risk: number } }) {
+  const tone = toneOf(p.total);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-1 ring-inset", soft[tone])}>
+          Score {p.total}<span className="font-normal opacity-70">/100</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="w-56">
+        <p className="mb-1.5 font-medium">Quality score</p>
+        <div className="space-y-1">
+          {(["fundamental", "technical", "risk"] as const).map((k) => (
+            <div key={k} className="flex justify-between gap-4"><span className="opacity-80">{PART_LABEL[k]}</span><span className="tabular-nums">{p[k]}</span></div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

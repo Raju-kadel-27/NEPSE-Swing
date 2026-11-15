@@ -5,6 +5,7 @@ import { closeDb } from "../lib/db";
 import { loadDataSource, saveCompany, savePrices, saveScores } from "../lib/db/repo";
 import type { CompanyDetail } from "../lib/ingest/merolagani";
 import type { PriceRow } from "../lib/ingest/sharesansar";
+import { HORIZON_KEYS, HORIZONS } from "../lib/horizon";
 import { rankStocks } from "../lib/scoring";
 
 const dir = path.join(process.cwd(), "data");
@@ -20,7 +21,8 @@ async function main() {
   for (const c of Object.values(store)) await saveCompany(c, c.name, new Date(c.fetchedAt));
   console.log(`companies: ${Object.keys(store).length}`);
   const ds = await loadDataSource();
-  if (ds) console.log(`scores ${ds.asOf}: ${await saveScores(ds.asOf, rankStocks(ds))}`);
+  // One ranking per holding period, so each can be backtested on its own.
+  if (ds) for (const h of HORIZON_KEYS) console.log(`Scored ${await saveScores(ds.asOf, h, rankStocks(ds, HORIZONS[h]))} stocks for ${ds.asOf} (${h})`);
 }
 
 main()

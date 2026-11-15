@@ -65,6 +65,7 @@ export const corporateActions = pgTable("corporate_actions", {
 export const scores = pgTable("scores", {
   symbol: text("symbol").notNull(),
   asOf: date("as_of").notNull(),
+  horizon: text("horizon").notNull().default("2m"),
   price: real("price").notNull(),
   total: smallint("total").notNull(),
   fundamental: smallint("fundamental").notNull(),
@@ -75,9 +76,11 @@ export const scores = pgTable("scores", {
   stopLoss: real("stop_loss").notNull(),
   target: real("target").notNull(),
   excluded: boolean("excluded").notNull().default(false),
+  signal: text("signal").notNull().default("avoid"),
+  support: real("support"),
   reasons: jsonb("reasons").$type<string[]>().notNull().default([]),
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
-}, (t) => [primaryKey({ columns: [t.symbol, t.asOf] }), index("scores_as_of_idx").on(t.asOf)]);
+}, (t) => [primaryKey({ columns: [t.symbol, t.asOf, t.horizon] }), index("scores_as_of_idx").on(t.asOf, t.horizon)]);
 
 export const scrapeRuns = pgTable("scrape_runs", {
   id: serial("id").primaryKey(),

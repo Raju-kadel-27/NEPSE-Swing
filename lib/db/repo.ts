@@ -1,5 +1,6 @@
 import { and, desc, eq, getTableColumns, gte, notInArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
+import type { HorizonKey } from "../horizon";
 import type { CompanyDetail } from "../ingest/merolagani";
 import type { PriceRow } from "../ingest/sharesansar";
 import type { Action, Candle, DataSource, Pick, StockData } from "../types";
@@ -82,14 +83,18 @@ export async function saveCompany(d: CompanyDetail, name: string, fetchedAt = ne
   });
 }
 
-export async function saveScores(asOf: string, picks: Pick[]) {
+export async function saveScores(asOf: string, horizon: HorizonKey, picks: Pick[]) {
   const db = getDb();
   const values = picks.map((p) => ({
-    symbol: p.symbol, asOf, price: p.price, total: p.total, fundamental: p.fundamental, technical: p.technical, risk: p.risk,
-    entryLow: p.entryLow, entryHigh: p.entryHigh, stopLoss: p.stopLoss, target: p.target, excluded: p.excluded, reasons: p.reasons, flags: p.flags,
+    symbol: p.symbol, asOf, horizon, price: p.price, total: p.total, fundamental: p.fundamental, technical: p.technical, risk: p.risk,
+    entryLow: p.entryLow, entryHigh: p.entryHigh, stopLoss: p.stopLoss, target: p.target, excluded: p.excluded,
+    signal: p.signal, support: p.support, reasons: p.reasons, flags: p.flags,
   }));
   for (const part of chunks(values, 500)) {
-    await db.insert(scores).values(part).onConflictDoUpdate({ target: [scores.symbol, scores.asOf], set: excludedSet(scores, ["symbol", "asOf"]) });
+    await db.insert(scores).values(part).onConflictDoUpdate({
+      target: [scores.symbol, scores.asOf, scores.horizon],
+      set: excludedSet(scores, ["symbol", "asOf", "horizon"]),
+    });
   }
   return values.length;
 }

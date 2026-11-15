@@ -9,6 +9,7 @@ export const MIN_TURNOVER = 1_000_000;
 export type RiskResult = {
   score: number; reasons: string[]; flags: string[]; excluded: boolean;
   atr: number | null; atrPct: number | null; avgTurnover: number; lockMovePct: number | null;
+  spiked: boolean; // sharp recent run-up: a bad moment to enter with the T+3 lock
 };
 
 const daysBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
@@ -50,10 +51,12 @@ export function scoreRisk(candles: Candle[], actions: Action[], asOf: string, sn
   const lockMovePct = atrPct !== null ? atrPct * Math.sqrt(SELLABLE_AFTER_TRADING_DAYS) : null;
   const multiDay = candles.length >= 6;
   const ref = multiDay ? candles.at(-6)!.close : snap.prevClose;
+  let spiked = false;
   if (ref && close) {
     const jump = close / ref - 1;
     parts.push({ score: multiDay ? scale(jump, 0.15, 0.05) : scale(jump, 0.08, 0.03), weight: 15 });
     if (jump >= (multiDay ? 0.1 : 0.05)) {
+      spiked = true;
       flags.push(`Up ${r1(jump * 100)}% in ${multiDay ? "5 days" : "1 day"}: a pullback is likely before new shares can be sold (T+3)`);
     }
   }
@@ -73,5 +76,5 @@ export function scoreRisk(candles: Candle[], actions: Action[], asOf: string, sn
   }
   parts.push({ score: event, weight: 15 });
 
-  return { score: weighted(parts), reasons, flags, excluded, atr: a, atrPct, avgTurnover, lockMovePct };
+  return { score: weighted(parts), reasons, flags, excluded, atr: a, atrPct, avgTurnover, lockMovePct, spiked };
 }

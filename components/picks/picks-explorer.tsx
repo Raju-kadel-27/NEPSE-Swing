@@ -1,0 +1,127 @@
+"use client";
+
+import { Hourglass, LayoutGrid, List, Search, SearchX, ShoppingCart, TableProperties } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { isBuyableToday } from "@/lib/scoring";
+import type { Horizon } from "@/lib/horizon";
+import type { Pick } from "@/lib/types";
+import { PickCard } from "./pick-card";
+import { PicksTable } from "./picks-table";
+
+type Bucket = "buy" | "wait" | "all";
+type SortKey = "total" | "nearest" | "upside" | "pe" | "symbol";
+
+const isWaiting = (p: Pick) => p.signal === "wait" || ((p.signal === "ready" || p.signal === "breakout") && !isBuyableToday(p));
+
+const TABS: Record<Bucket, { label: string; icon: React.ElementType; hint: string; filter: (p: Pick) => boolean; sort: SortKey; view: "cards" | "table" }> = {
+  buy: {
+    label: "Buy today", icon: ShoppingCart, filter: isBuyableToday, sort: "total", view: "cards",
+    hint: "Good stocks trading inside their buy range right now. Place a limit order inside the range.",
+  },
+  wait: {
+    label: "Wait for a dip", icon: Hourglass, filter: isWaiting, sort: "nearest", view: "cards",
+    hint: "Good stocks that are a bit expensive today. Set a limit order at the top of the buy range and let the price come to you.",
+  },
+  all: {
+    label: "All stocks", icon: TableProperties, filter: () => true, sort: "total", view: "table",
+    hint: "Every stock we track, including ones to avoid. Click any row for the full analysis.",
+  },
+};
+
+const SORTS: Record<SortKey, { label: string; fn: (a: Pick, b: Pick) => number }> = {
+  total: { label: "Best score", fn: (a, b) => b.total - a.total },
+  nearest: { label: "Closest to buy price", fn: (a, b) => a.aboveZonePct - b.aboveZonePct },
+  upside: { label: "Most upside", fn: (a, b) => b.target / b.entryHigh - a.target / a.entryHigh },
+  pe: { label: "Cheapest (P/E)", fn: (a, b) => (a.metrics.pe ?? Infinity) - (b.metrics.pe ?? Infinity) },
+  symbol: { label: "Symbol A–Z", fn: (a, b) => a.symbol.localeCompare(b.symbol) },
+};
+
+export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Horizon }) {
+  const [bucket, setBucket] = useState<Bucket>("buy");
+  const [query, setQuery] = useState("");
+  const [sector, setSector] = useState("all");
+  const [sort, setSort] = useState<SortKey>(TABS.buy.sort);
+  const [view, setView] = useState<"cards" | "table">(TABS.buy.view);
+
+  const sectors = useMemo(() => [...new Set(picks.map((p) => p.sector))].sort(), [picks]);
+  const counts = useMemo(
+    () => Object.fromEntries((Object.keys(TABS) as Bucket[]).map((b) => [b, picks.filter(TABS[b].filter).length])) as Record<Bucket, number>,
+    [picks],
+  );
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return picks
+      .filter(TABS[bucket].filter)
+      .filter((p) => sector === "all" || p.sector === sector)
+      .filter((p) => !q || p.symbol.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+      .sort(SORTS[sort].fn);
+  }, [picks, bucket, sector, query, sort]);
+
+  const switchTab = (b: Bucket) => {
+    setBucket(b);
+    setSort(TABS[b].sort);
+    setView(TABS[b].view);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Tabs value={bucket} onValueChange={(v) => switchTab(v as Bucket)}>
+        <TabsList className="h-auto w-full justify-start gap-1 p-1 sm:w-auto">
+          {(Object.keys(TABS) as Bucket[]).map((b) => {
+            const T = TABS[b];
+            return (
+              <TabsTrigger key={b} value={b} className="flex-1 gap-1.5 px-3 py-1.5 sm:flex-none">
+                <T.icon className="size-4" />
+                {T.label}
+                <span className="rounded-full bg-background/60 px-1.5 text-xs tabular-nums text-muted-foreground">{counts[b]}</span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
+      <p className="text-sm text-muted-foreground">{TABS[bucket].hint}</p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a stock, e.g. NABIL" className="pl-8" aria-label="Search stocks" />
+        </div>
+        <Select value={sector} onValueChange={setSector}>
+          <SelectTrigger className="w-40" aria-label="Sector"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sectors</SelectItem>
+            {sectors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+          <SelectTrigger className="w-48" aria-label="Sort by"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(SORTS).map(([k, s]) => <SelectItem key={k} value={k}>Sort: {s.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <ToggleGroup type="single" variant="outline" value={view} onValueChange={(v) => v && setView(v as "cards" | "table")} aria-label="View" className="ml-auto">
+          <ToggleGroupItem value="cards" aria-label="Card view"><LayoutGrid className="size-4" /></ToggleGroupItem>
+          <ToggleGroupItem value="table" aria-label="Table view"><List className="size-4" /></ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {shown.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
+          <SearchX className="size-6" />
+          {query || sector !== "all" ? "No stocks match your search." : "Nothing here today. Check the other tabs."}
+        </div>
+      ) : view === "cards" ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {shown.map((p) => <PickCard key={p.symbol} p={p} horizon={horizon} />)}
+        </div>
+      ) : (
+        <PicksTable picks={shown} horizon={horizon} />
+      )}
+    </div>
+  );
+}

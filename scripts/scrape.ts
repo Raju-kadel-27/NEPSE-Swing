@@ -4,6 +4,7 @@ import { companyFreshness, EXCLUDED_SECTORS, finishRun, loadDataSource, saveComp
 import { sleep } from "../lib/ingest/http";
 import { fetchCompanyDetail } from "../lib/ingest/merolagani";
 import { fetchTodayPrices } from "../lib/ingest/sharesansar";
+import { HORIZON_KEYS, HORIZONS } from "../lib/horizon";
 import { rankStocks } from "../lib/scoring";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
@@ -54,7 +55,8 @@ async function main() {
     }
 
     const ds = await loadDataSource();
-    if (ds) console.log(`Scored ${await saveScores(ds.asOf, rankStocks(ds))} stocks for ${ds.asOf}`);
+    // One ranking per holding period, so each can be backtested on its own.
+    if (ds) for (const h of HORIZON_KEYS) console.log(`Scored ${await saveScores(ds.asOf, h, rankStocks(ds, HORIZONS[h]))} stocks for ${ds.asOf} (${h})`);
     await finishRun(runId, { priceDate, pricesSaved, companiesUpdated: ok, companiesFailed: failed });
     console.log(`Done. ${ok} companies updated, ${failed} failed.`);
   } catch (e) {

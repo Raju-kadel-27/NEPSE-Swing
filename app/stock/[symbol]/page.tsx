@@ -1,151 +1,301 @@
+import { AlertTriangle, ArrowLeft, CheckCircle2, LineChart } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { type ChartPoint, PriceChart } from "@/components/PriceChart";
-import { ScoreBadge, ScoreBar } from "@/components/ScoreBar";
-import { getDataSource } from "@/lib/data";
+import { Suspense } from "react";
+import { GLOSSARY, InfoTip } from "@/components/info-tip";
+import { type ChartPoint, PriceChart } from "@/components/price-chart";
+import { ChangeText, PART_LABEL, ScoreMeter, ScoreRing, SignalBadge } from "@/components/score";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ZoneBar } from "@/components/zone-bar";
+import { HorizonPicker } from "@/components/horizon-picker";
+import { getDataSource, getPicks } from "@/lib/data";
+import { horizonQuery, parseHorizon } from "@/lib/horizon";
+import { npr, num, pctFrom } from "@/lib/format";
 import { sma } from "@/lib/indicators";
 import { shortDay } from "@/lib/market";
-import { rankStocks, verdict } from "@/lib/scoring";
+import { isBuyableToday } from "@/lib/scoring";
+import type { Pick } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export async function generateStaticParams() {
   return (await getDataSource()).stocks.map((s) => ({ symbol: s.company.symbol }));
 }
 
-const fmt = (n: number | null | undefined, d = 1) => (n == null ? "–" : n.toLocaleString("en-IN", { maximumFractionDigits: d }));
-const toneText = { good: "text-good", ok: "text-ok", bad: "text-bad" };
-
-export default async function StockPage(props: PageProps<"/stock/[symbol]">) {
+export async function generateMetadata(props: PageProps<"/stock/[symbol]">): Promise<Metadata> {
   const { symbol } = await props.params;
-  const ds = await getDataSource();
+  return { title: symbol.toUpperCase() };
+}
+
+// The one-sentence answer to "should I buy this today?"
+function headline(p: Pick): string {
+  const range = `Rs ${num(p.entryLow, 0)}–${num(p.entryHigh, 0)}`;
+  switch (p.signal) {
+    case "ready":
+    case "breakout":
+      return isBuyableToday(p) ? `Buy between ${range}` : `Price is right, but the score is only fair. Small position at most, ${range}`;
+    case "wait":
+      return `Wait. Buy only at Rs ${num(p.entryHigh, 0)} or lower`;
+    case "not_yet":
+      return "Don't buy yet. The price is still falling";
+    default:
+      return "Avoid for now";
+  }
+}
+
+const DECISION_STYLE: Record<Pick["signal"], string> = {
+  ready: "border-success/40 bg-success/5",
+  breakout: "border-primary/40 bg-primary/5",
+  wait: "border-warning/40 bg-warning/5",
+  not_yet: "border-border",
+  avoid: "border-destructive/30 bg-destructive/5",
+};
+
+function PlanCell({ label, tip, value, sub, className }: { label: string; tip: string; value: string; sub?: string; className?: string }) {
+  return (
+    <div className="rounded-lg bg-background/70 px-3 py-2.5 ring-1 ring-foreground/5">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">{label} <InfoTip text={tip} /></div>
+      <div className={cn("mt-0.5 text-lg font-semibold tabular-nums", className)}>{value}</div>
+      {sub && <div className={cn("text-xs tabular-nums opacity-80", className)}>{sub}</div>}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-muted/50 px-3 py-2.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+function StockSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="h-16 w-72" />
+      <Skeleton className="h-64 w-full rounded-xl" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+// params are read inside Suspense so navigation can show the skeleton instantly.
+export default function StockPage(props: PageProps<"/stock/[symbol]">) {
+  return (
+    <Suspense fallback={<StockSkeleton />}>
+      <StockView params={props.params} searchParams={props.searchParams} />
+    </Suspense>
+  );
+}
+
+async function StockView({ params, searchParams }: { params: PageProps<"/stock/[symbol]">["params"]; searchParams: PageProps<"/stock/[symbol]">["searchParams"] }) {
+  const [{ symbol }, query] = await Promise.all([params, searchParams]);
+  const horizon = parseHorizon(query.h);
+  const [ds, picks] = await Promise.all([getDataSource(), getPicks(horizon.key)]);
   const stock = ds.stocks.find((s) => s.company.symbol === symbol.toUpperCase());
-  const ranked = rankStocks(ds);
-  const pick = ranked.find((p) => p.symbol === symbol.toUpperCase());
+  const pick = picks.find((p) => p.symbol === symbol.toUpperCase());
   if (!stock || !pick) notFound();
 
   const closes = stock.candles.map((c) => c.close);
   const s50 = sma(closes, 50), s200 = sma(closes, 200);
   const chart: ChartPoint[] = stock.candles
-    .map((c, i) => ({ date: c.date, close: c.close, sma50: s50[i] && +s50[i]!.toFixed(1), sma200: s200[i] && +s200[i]!.toFixed(1) }))
+    .map((c, i) => ({ date: c.date, close: c.close, sma50: s50[i] == null ? null : +s50[i]!.toFixed(1), sma200: s200[i] == null ? null : +s200[i]!.toFixed(1) }))
     .slice(-180);
-  const v = verdict(pick.total);
   const m = pick.metrics;
+  const hasLongAverages = m.sma50 !== null && m.sma200 !== null;
 
   return (
     <div className="space-y-6">
-      <Link href="/" className="text-sm text-muted hover:text-fg">← All picks</Link>
+      <Link href={`/${horizonQuery(horizon)}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="size-4" /> All picks
+      </Link>
 
-      <section className="flex flex-wrap gap-4 items-start">
-        <ScoreBadge score={pick.total} size="lg" />
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{pick.symbol} <span className="text-base font-normal text-muted">{pick.name}</span></h1>
-          <div className="text-sm text-muted">{pick.sector} · Rank #{ranked.indexOf(pick) + 1} of {ranked.length}</div>
-          <div className={`mt-1 font-medium ${toneText[v.tone]}`}>{pick.excluded ? "Excluded: too illiquid" : v.label}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-3xl font-semibold tracking-tight">{pick.symbol}</h1>
+            <Badge variant="secondary">{pick.sector}</Badge>
+          </div>
+          <p className="text-muted-foreground">{pick.name}</p>
         </div>
-        <div className="ml-auto text-right">
-          <div className="text-2xl font-semibold tabular-nums">Rs {fmt(pick.price)}</div>
-          <div className={`text-sm tabular-nums ${pick.changePct >= 0 ? "text-good" : "text-bad"}`}>{pick.changePct >= 0 ? "+" : ""}{pick.changePct.toFixed(2)}% today</div>
+        <div className="text-right">
+          <div className="text-3xl font-semibold tabular-nums">Rs {num(pick.price)}</div>
+          <ChangeText pct={pick.changePct} className="text-sm" /> <span className="text-xs text-muted-foreground">on the last trading day</span>
         </div>
-      </section>
+      </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="min-w-0 rounded-xl border border-line bg-surface p-4 md:col-span-2">
-          <h2 className="text-sm font-medium mb-2">{chart.length >= 20 ? `Price, last ${Math.min(chart.length, 180)} trading days` : "Price history"}</h2>
-          {chart.length >= 20 ? (
-            <PriceChart data={chart} stopLoss={pick.stopLoss} target={pick.target} />
-          ) : (
-            <div className="h-72 flex flex-col items-center justify-center text-center text-sm text-muted gap-2 px-6">
-              <p>Price history is still being collected: {chart.length} trading day{chart.length === 1 ? "" : "s"} so far.</p>
-              <p>The chart appears after 20 days. Until then the trend uses the 120-day and 180-day averages published by ShareSansar.</p>
-            </div>
-          )}
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-4 space-y-4">
+      <HorizonPicker current={horizon} basePath={`/stock/${pick.symbol}`} />
+
+      <Card className={cn("border-2 ring-0", DECISION_STYLE[pick.signal])}>
+        <CardContent className="space-y-5">
           <div className="space-y-2">
-            <h2 className="text-sm font-medium">Score breakdown</h2>
-            <ScoreBar label="Fundamental" score={pick.fundamental} />
-            <ScoreBar label="Technical" score={pick.technical} />
-            <ScoreBar label="Risk / liquidity" score={pick.risk} />
+            <div className="flex flex-wrap items-center gap-2">
+              <SignalBadge signal={pick.signal} />
+              <span className="text-xs text-muted-foreground">for a {horizon.adj} hold</span>
+            </div>
+            <p className="text-xl font-semibold tracking-tight sm:text-2xl">{headline(pick)}</p>
+            <p className="text-sm text-muted-foreground">{pick.note}</p>
           </div>
-          <div className="space-y-1 text-sm">
-            <h2 className="font-medium">Trade plan (2-3 months)</h2>
-            <div className="flex justify-between"><span className="text-muted">Buy zone</span><span className="tabular-nums">{fmt(pick.entryLow)} – {fmt(pick.entryHigh)}</span></div>
-            <div className="flex justify-between"><span className="text-bad">Stop-loss</span><span className="tabular-nums">{fmt(pick.stopLoss)} ({((pick.stopLoss / pick.price - 1) * 100).toFixed(1)}%)</span></div>
-            <div className="flex justify-between"><span className="text-good">Target</span><span className="tabular-nums">{fmt(pick.target)} (+{((pick.target / pick.price - 1) * 100).toFixed(1)}%)</span></div>
-            <div className="flex justify-between"><span className="text-muted">Buy on</span><span>{shortDay(pick.buyDate)}</span></div>
-            <div className="flex justify-between"><span className="text-muted">Can sell from</span><span>{shortDay(pick.sellableFrom)}</span></div>
-            {pick.lockMovePct !== null && (
-              <div className="flex justify-between"><span className="text-muted">Typical move until then</span><span className="tabular-nums">±{pick.lockMovePct}%</span></div>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <PlanCell label="Buy at" tip={GLOSSARY.buyAt} value={`${num(pick.entryLow, 0)}–${num(pick.entryHigh, 0)}`} />
+            <PlanCell label="Sell if below" tip={GLOSSARY.sellIfBelow} value={num(pick.stopLoss)} sub={`${pctFrom(pick.stopLoss, pick.entryHigh).toFixed(1)}% from the buy price`} className="text-destructive" />
+            <PlanCell label="Take profit" tip={GLOSSARY.takeProfit} value={num(pick.target)} sub={`+${pctFrom(pick.target, pick.entryHigh).toFixed(1)}% from the buy price`} className="text-success" />
+            <PlanCell label="Sellable from" tip={GLOSSARY.sellable} value={shortDay(pick.sellableFrom)} sub={`if bought ${shortDay(pick.buyDate)}`} />
+          </div>
+
+          <ZoneBar stop={pick.stopLoss} low={pick.entryLow} high={pick.entryHigh} target={pick.target} price={pick.price} />
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>Why it looks good</CardTitle></CardHeader>
+          <CardContent>
+            {pick.reasons.length ? (
+              <ul className="space-y-2.5 text-sm">
+                {pick.reasons.map((r) => <li key={r} className="flex gap-2"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />{r}</li>)}
+              </ul>
+            ) : <p className="text-sm text-muted-foreground">Nothing stands out.</p>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Things to watch</CardTitle></CardHeader>
+          <CardContent>
+            {pick.flags.length ? (
+              <ul className="space-y-2.5 text-sm">
+                {pick.flags.map((f) => <li key={f} className="flex gap-2"><AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />{f}</li>)}
+              </ul>
+            ) : <p className="text-sm text-muted-foreground">No red flags found.</p>}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">Quality score <InfoTip text={GLOSSARY.score} /></CardTitle>
+            <CardDescription>How good the stock is for a {horizon.adj} hold, separate from today&apos;s price</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center gap-4">
+              <ScoreRing score={pick.total} size={72} />
+              <p className="text-sm text-muted-foreground">
+                {pick.total >= 70 ? "Strong overall." : pick.total >= 55 ? "Decent, with some weak spots." : "Weak overall."} 70+ is strong, 55-69 is fair.
+              </p>
+            </div>
+            <div className="space-y-3">
+              <ScoreMeter label={PART_LABEL.fundamental} score={pick.fundamental} tip={GLOSSARY.company} />
+              <ScoreMeter label={PART_LABEL.technical} score={pick.technical} tip={GLOSSARY.trend} />
+              <ScoreMeter label={PART_LABEL.risk} score={pick.risk} tip={GLOSSARY.safety} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0 lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Price</CardTitle>
+            <CardDescription>
+              {chart.length >= 20 ? `Last ${Math.min(chart.length, 180)} trading days, with the stop and target` : "Price history is still being collected"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chart.length >= 20 ? (
+              <PriceChart data={chart} stopLoss={pick.stopLoss} target={pick.target} />
+            ) : (
+              <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center text-sm text-muted-foreground">
+                <LineChart className="size-8 opacity-50" />
+                <p>The price chart appears once we have 20 trading days of prices ({chart.length} so far).</p>
+                <p className="text-xs">Average price over the last 120 days: Rs {num(m.avg120)} · last 180 days: Rs {num(m.avg180)}</p>
+              </div>
             )}
-            <p className="text-xs text-muted pt-1">
-              New shares reach your demat account and can be sold 3 trading days after you buy, so the stop-loss can&apos;t protect you
-              before then. Size the position for that. After that, sell if it closes below the stop. Re-check after each quarterly report.
-            </p>
-          </div>
-        </div>
-      </section>
+          </CardContent>
+        </Card>
+      </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium mb-2">Why it scores well</h2>
-          {pick.reasons.length ? (
-            <ul className="space-y-1.5 text-sm">{pick.reasons.map((r) => <li key={r} className="flex gap-2"><span className="text-good">✓</span>{r}</li>)}</ul>
-          ) : <p className="text-sm text-muted">Nothing stands out.</p>}
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium mb-2">Watch out for</h2>
-          {pick.flags.length ? (
-            <ul className="space-y-1.5 text-sm">{pick.flags.map((f) => <li key={f} className="flex gap-2 text-ok"><span>!</span>{f}</li>)}</ul>
-          ) : <p className="text-sm text-muted">No red flags found.</p>}
-        </div>
-      </section>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold tracking-tight">Company details</h2>
+        <Tabs defaultValue="numbers" className="gap-4">
+          <TabsList>
+            <TabsTrigger value="numbers">Key numbers</TabsTrigger>
+            <TabsTrigger value="results">Quarterly results</TabsTrigger>
+            <TabsTrigger value="dividends">Dividends</TabsTrigger>
+          </TabsList>
 
-      <section className="rounded-xl border border-line bg-surface p-4">
-        <h2 className="text-sm font-medium mb-3">Key numbers</h2>
-        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-          {[
-            ["P/E", fmt(m.pe)], ["P/B", fmt(m.pbv, 2)], ["ROE", m.roe == null ? "–" : `${fmt(m.roe)}%`],
-            ["EPS growth YoY", m.epsGrowthYoY == null ? "–" : `${(m.epsGrowthYoY * 100).toFixed(0)}%`],
-            ["RSI (14)", fmt(m.rsi)],
-            ...(m.sma50 !== null && m.sma200 !== null
-              ? [["50-day avg", fmt(m.sma50)], ["200-day avg", fmt(m.sma200)]]
-              : [["120-day avg", fmt(m.avg120)], ["180-day avg", fmt(m.avg180)]]),
-            ["Avg daily turnover", m.avgTurnover == null ? "–" : `Rs ${fmt(m.avgTurnover / 1e5)} lakh`],
-          ].map(([k, val]) => (
-            <div key={k}><dt className="text-xs text-muted">{k}</dt><dd className="tabular-nums font-medium">{val}</dd></div>
-          ))}
-        </dl>
-      </section>
+          <TabsContent value="numbers">
+            <Card>
+              <CardContent>
+                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Metric label="P/E (price ÷ earnings)" value={num(m.pe)} />
+                  <Metric label="P/B (price ÷ book value)" value={num(m.pbv, 2)} />
+                  <Metric label="Return on equity" value={m.roe == null ? "–" : `${num(m.roe)}%`} />
+                  <Metric label="Earnings growth (YoY)" value={m.epsGrowthYoY == null ? "Not enough data yet" : `${(m.epsGrowthYoY * 100).toFixed(0)}%`} />
+                  <Metric label="RSI (momentum)" value={m.rsi == null ? "Not enough data yet" : num(m.rsi)} />
+                  <Metric label={hasLongAverages ? "50-day average" : "120-day average"} value={num(hasLongAverages ? m.sma50 : m.avg120)} />
+                  <Metric label={hasLongAverages ? "200-day average" : "180-day average"} value={num(hasLongAverages ? m.sma200 : m.avg180)} />
+                  <Metric label="Traded per day" value={npr(m.avgTurnover)} />
+                </dl>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-line bg-surface p-4 overflow-x-auto">
-          <h2 className="text-sm font-medium mb-2">Quarterly reports</h2>
-          <table className="w-full text-sm tabular-nums">
-            <thead className="text-xs text-muted text-left">
-              <tr><th className="py-1">Quarter</th><th>EPS (ann.)</th><th>Book value</th><th>ROE</th>{stock.quarters[0]?.npl !== undefined && <><th>NPL</th><th>CAR</th></>}</tr>
-            </thead>
-            <tbody>
-              {[...stock.quarters].reverse().map((q) => (
-                <tr key={`${q.fiscalYear}-${q.quarter}`} className="border-t border-line">
-                  <td className="py-1.5">Q{q.quarter} {q.fiscalYear}</td><td>{fmt(q.eps, 2)}</td><td>{fmt(q.netWorthPerShare)}</td><td>{fmt(q.roe)}%</td>
-                  {q.npl !== undefined && <><td>{q.npl}%</td><td>{q.car}%</td></>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-4 overflow-x-auto">
-          <h2 className="text-sm font-medium mb-2">Dividends and corporate actions</h2>
-          <table className="w-full text-sm tabular-nums">
-            <thead className="text-xs text-muted text-left"><tr><th className="py-1">Fiscal year</th><th>Cash</th><th>Bonus</th><th>Right</th><th>Book close</th></tr></thead>
-            <tbody>
-              {[...stock.actions].reverse().map((a) => (
-                <tr key={a.fiscalYear} className="border-t border-line">
-                  <td className="py-1.5">{a.fiscalYear}</td><td>{a.cashDividendPct}%</td><td>{a.bonusPct}%</td><td>{a.rightRatio ?? "–"}</td><td>{a.bookClosureDate ?? "–"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <TabsContent value="results">
+            <Card>
+              <CardHeader><CardDescription>Earnings per share are annualised. New quarters are added as companies report.</CardDescription></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Quarter</TableHead><TableHead className="text-right">EPS</TableHead><TableHead className="text-right">Book value</TableHead><TableHead className="text-right">ROE</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...stock.quarters].reverse().map((q) => (
+                      <TableRow key={`${q.fiscalYear}-${q.quarter}`}>
+                        <TableCell>Q{q.quarter} {q.fiscalYear}</TableCell>
+                        <TableCell className="text-right tabular-nums">{num(q.eps, 2)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{num(q.netWorthPerShare)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{num(q.roe)}%</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="dividends">
+            <Card>
+              <CardHeader><CardDescription>Only dividends from the last two fiscal years count toward the score.</CardDescription></CardHeader>
+              <CardContent>
+                {stock.actions.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow><TableHead>Fiscal year</TableHead><TableHead className="text-right">Cash</TableHead><TableHead className="text-right">Bonus shares</TableHead><TableHead className="text-right">Right shares</TableHead></TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[...stock.actions].reverse().map((a) => (
+                        <TableRow key={a.fiscalYear}>
+                          <TableCell>{a.fiscalYear}</TableCell>
+                          <TableCell className="text-right tabular-nums">{a.cashDividendPct}%</TableCell>
+                          <TableCell className="text-right tabular-nums">{a.bonusPct}%</TableCell>
+                          <TableCell className="text-right">{a.rightRatio ?? "–"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : <p className="text-sm text-muted-foreground">No dividend history.</p>}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </section>
     </div>
   );

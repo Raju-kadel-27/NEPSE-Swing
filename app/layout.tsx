@@ -42,8 +42,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 <div className="mx-auto flex max-w-7xl items-start gap-2 px-4 py-2 text-xs text-muted-foreground sm:px-6">
                   <Info className="mt-px size-3.5 shrink-0" />
                   <span>
-                    Building price history: {historyDays} trading day{historyDays === 1 ? "" : "s"} collected. RSI and MACD switch on after 35
-                    days and the full 50/200-day trend after 200. Until then stops and risk scores are approximate.
+                    We started tracking prices recently ({historyDays} trading day{historyDays === 1 ? "" : "s"} so far). Buy ranges and stop
+                    levels become more precise over the next few weeks.
                   </span>
                 </div>
               </div>
