@@ -107,6 +107,8 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv11", "ss01";
+    background-image: radial-gradient(60rem 24rem at 50% -8rem, color-mix(in oklch, var(--primary) 9%, transparent), transparent 70%);
+    background-repeat: no-repeat;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
