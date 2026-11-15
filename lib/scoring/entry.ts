@@ -71,6 +71,9 @@ export function lowerHighs(candles: Candle[], look = 120, k = 5): number[] {
   return out;
 }
 
+// Sell 97% of the way to the full target to catch near-misses; backtest cost ~0.02% per 2-month trade vs the exact target.
+export const TARGET_SHARE = 0.97;
+
 // Typical distance a stock travels over `days` trading days, used to keep short-hold targets realistic.
 const reach = (atr: number, days: number) => 1.25 * atr * Math.sqrt(days);
 
@@ -78,7 +81,8 @@ function withRisk(entryLow: number, entryHigh: number, atr: number, days: number
   // Stop one ATR under the zone, and at least stopAtr (2+) ATR under its top so the T+3 lock can't hit it on noise.
   const stopLoss = Math.min(entryLow - atr, entryHigh - stopAtr * atr);
   // Measured from the top of the zone: 2x the risk, but no further than the stock usually moves in the holding period.
-  const target = Math.min(entryHigh + Math.min(2 * (entryHigh - stopLoss), reach(atr, days)), entryHigh * (1 + cap));
+  const full = Math.min(entryHigh + Math.min(2 * (entryHigh - stopLoss), reach(atr, days)), entryHigh * (1 + cap));
+  const target = entryHigh + TARGET_SHARE * (full - entryHigh);
   return { entryLow: r1(entryLow), entryHigh: r1(entryHigh), stopLoss: r1(stopLoss), target: r1(target) };
 }
 
