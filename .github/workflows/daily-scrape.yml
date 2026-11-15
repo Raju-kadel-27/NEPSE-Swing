@@ -1,0 +1,63 @@
+name: Daily scrape
+
+on:
+  schedule:
+    # 10:15 UTC = 4:00 pm NPT, an hour after NEPSE closes, Monday to Friday.
+    - cron: "15 10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# Never run two scrapes against the database at once.
+concurrency:
+  group: daily-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Scrape prices and fundamentals, save today's picks
+        run: npm run scrape
+
+      - name: Check the scrape looks healthy
+        run: npm run scrape:check
+
+      # A failed scheduled run opens (or comments on) one issue, which GitHub emails to the repo owner.
+      - name: Open or update the failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create scrape-failure --color B60205 --description "Daily scrape failed" --force
+          body="The daily scrape failed on $(date -u +%F). Logs: $RUN_URL"
+          open=$(gh issue list --label scrape-failure --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then gh issue comment "$open" --body "$body"; else gh issue create --title "Daily scrape failed" --label scrape-failure --body "$body"; fi
+
+      - name: Close the failure issue after a good run
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for n in $(gh issue list --label scrape-failure --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Recovered: $RUN_URL"
+          done
