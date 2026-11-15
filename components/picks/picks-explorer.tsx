@@ -6,14 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { isBuyableToday } from "@/lib/scoring";
+import { isBuyableToday, isPreferredPrice, PREFERRED_MAX_PRICE } from "@/lib/scoring";
 import type { Horizon } from "@/lib/horizon";
 import type { Pick } from "@/lib/types";
 import { PickCard } from "./pick-card";
 import { PicksTable } from "./picks-table";
 
 type Bucket = "buy" | "wait" | "all";
-type SortKey = "total" | "nearest" | "upside" | "pe" | "symbol";
+type SortKey = "total" | "nearest" | "rupees" | "upside" | "pe" | "symbol";
+// Minimum net profit per share (after fees and tax) if the target is reached.
+const MIN_GAINS = [0, 10, 20, 30, 50] as const;
 
 const isWaiting = (p: Pick) => p.signal === "wait" || ((p.signal === "ready" || p.signal === "breakout") && !isBuyableToday(p));
 
@@ -35,22 +37,28 @@ const TABS: Record<Bucket, { label: string; icon: React.ElementType; hint: strin
 const SORTS: Record<SortKey, { label: string; fn: (a: Pick, b: Pick) => number }> = {
   total: { label: "Best score", fn: (a, b) => b.total - a.total },
   nearest: { label: "Closest to buy price", fn: (a, b) => a.aboveZonePct - b.aboveZonePct },
-  upside: { label: "Most upside", fn: (a, b) => b.target / b.entryHigh - a.target / a.entryHigh },
+  rupees: { label: "Most Rs per share", fn: (a, b) => b.netGainPerUnit - a.netGainPerUnit },
+  upside: { label: "Most upside %", fn: (a, b) => b.target / b.entryHigh - a.target / a.entryHigh },
   pe: { label: "Cheapest (P/E)", fn: (a, b) => (a.metrics.pe ?? Infinity) - (b.metrics.pe ?? Infinity) },
   symbol: { label: "Symbol A–Z", fn: (a, b) => a.symbol.localeCompare(b.symbol) },
 };
+
+type PriceBand = "preferred" | "any";
+const inBand = (p: Pick, band: PriceBand) => band === "any" || isPreferredPrice(p);
 
 export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Horizon }) {
   const [bucket, setBucket] = useState<Bucket>("buy");
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState("all");
+  const [minGain, setMinGain] = useState("0");
+  const [priceBand, setPriceBand] = useState<PriceBand>("preferred");
   const [sort, setSort] = useState<SortKey>(TABS.buy.sort);
   const [view, setView] = useState<"cards" | "table">(TABS.buy.view);
 
   const sectors = useMemo(() => [...new Set(picks.map((p) => p.sector))].sort(), [picks]);
   const counts = useMemo(
-    () => Object.fromEntries((Object.keys(TABS) as Bucket[]).map((b) => [b, picks.filter(TABS[b].filter).length])) as Record<Bucket, number>,
-    [picks],
+    () => Object.fromEntries((Object.keys(TABS) as Bucket[]).map((b) => [b, picks.filter((p) => TABS[b].filter(p) && (b === "all" || inBand(p, priceBand))).length])) as Record<Bucket, number>,
+    [picks, priceBand],
   );
 
   const shown = useMemo(() => {
@@ -58,9 +66,11 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
     return picks
       .filter(TABS[bucket].filter)
       .filter((p) => sector === "all" || p.sector === sector)
+      .filter((p) => p.netGainPerUnit >= Number(minGain))
+      .filter((p) => bucket === "all" || inBand(p, priceBand))
       .filter((p) => !q || p.symbol.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
       .sort(SORTS[sort].fn);
-  }, [picks, bucket, sector, query, sort]);
+  }, [picks, bucket, sector, minGain, priceBand, query, sort]);
 
   const switchTab = (b: Bucket) => {
     setBucket(b);
@@ -98,6 +108,19 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
             {sectors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={priceBand} onValueChange={(v) => setPriceBand(v as PriceBand)}>
+          <SelectTrigger className="w-40" aria-label="Price range"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="preferred">Under Rs {PREFERRED_MAX_PRICE}</SelectItem>
+            <SelectItem value="any">Any price</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={minGain} onValueChange={setMinGain}>
+          <SelectTrigger className="w-44" aria-label="Minimum profit per share"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {MIN_GAINS.map((g) => <SelectItem key={g} value={String(g)}>{g ? `Profit Rs ${g}+/share` : "Any profit/share"}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
           <SelectTrigger className="w-48" aria-label="Sort by"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -113,7 +136,7 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
       {shown.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
           <SearchX className="size-6" />
-          {query || sector !== "all" ? "No stocks match your search." : "Nothing here today. Check the other tabs."}
+          {query || sector !== "all" || minGain !== "0" || priceBand !== "any" ? "No stocks match your filters. Try Any price." : "Nothing here today. Check the other tabs."}
         </div>
       ) : view === "cards" ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

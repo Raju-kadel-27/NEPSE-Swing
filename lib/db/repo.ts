@@ -3,6 +3,7 @@ import type { PgTable } from "drizzle-orm/pg-core";
 import type { HorizonKey } from "../horizon";
 import type { CompanyDetail } from "../ingest/merolagani";
 import type { PriceRow } from "../ingest/sharesansar";
+import { adjustCandles } from "../indicators/adjust";
 import type { Action, Candle, DataSource, Pick, StockData } from "../types";
 import { getDb } from "./index";
 import { companies, corporateActions, dailyPrices, quarterlyFinancials, scores, scrapeRuns } from "./schema";
@@ -45,6 +46,19 @@ export async function savePrices(date: string, rows: PriceRow[]) {
     await db.insert(dailyPrices).values(part).onConflictDoUpdate({ target: [dailyPrices.symbol, dailyPrices.date], set: excludedSet(dailyPrices, ["symbol", "date"]) });
   }
   return values.length;
+}
+
+// Backfilled history for one symbol; never overwrites a day the daily scraper already saved.
+export async function savePriceHistory(symbol: string, candles: Candle[]) {
+  const db = getDb();
+  let saved = 0;
+  for (const part of chunks(candles, 1000)) {
+    const rows = await db.insert(dailyPrices).values(part.map((c) => ({
+      symbol, date: c.date, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, turnover: c.turnover ?? 0, prevClose: c.prevClose ?? null,
+    }))).onConflictDoNothing().returning({ date: dailyPrices.date });
+    saved += rows.length;
+  }
+  return saved;
 }
 
 // Upserts the company row, its latest quarter and its dividend/bonus/right history in one transaction.
@@ -110,18 +124,23 @@ export async function finishRun(id: number, v: { priceDate?: string; pricesSaved
 
 // ---------- reads ----------
 
-export async function companyFreshness(): Promise<Map<string, { sector: string; fetchedAt: Date }>> {
-  const rows = await getDb().select({ symbol: companies.symbol, sector: companies.sector, fetchedAt: companies.fetchedAt }).from(companies);
-  return new Map(rows.map((r) => [r.symbol, { sector: r.sector, fetchedAt: r.fetchedAt }]));
+export type Freshness = { sector: string; fetchedAt: Date; epsFiscalYear: string | null; epsQuarter: number | null };
+
+export async function companyFreshness(): Promise<Map<string, Freshness>> {
+  const rows = await getDb().select({
+    symbol: companies.symbol, sector: companies.sector, fetchedAt: companies.fetchedAt, epsFiscalYear: companies.epsFiscalYear, epsQuarter: companies.epsQuarter,
+  }).from(companies);
+  return new Map(rows.map(({ symbol, ...r }) => [symbol, r]));
 }
 
 // Builds the scoring input from the DB: latest day's tradeable stocks with their history.
-export async function loadDataSource(): Promise<DataSource | null> {
+// `historyDays` widens the window for backtests; the live pages use the default.
+export async function loadDataSource(historyDays = HISTORY_DAYS): Promise<DataSource | null> {
   const db = getDb();
   const [{ latest, days }] = await db.select({ latest: sql<string | null>`max(${dailyPrices.date})::text`, days: sql<number>`count(distinct ${dailyPrices.date})::int` }).from(dailyPrices);
   if (!latest) return null;
 
-  const since = sql`(${latest}::date - ${HISTORY_DAYS}::int)`;
+  const since = sql`(${latest}::date - ${historyDays}::int)`;
   const [comps, prices, quarters, actions] = await Promise.all([
     db.select().from(companies).where(notInArray(companies.sector, EXCLUDED_SECTORS)),
     db.select().from(dailyPrices).where(gte(dailyPrices.date, since)).orderBy(dailyPrices.symbol, dailyPrices.date),
@@ -153,9 +172,13 @@ export async function loadDataSource(): Promise<DataSource | null> {
 
     stocks.push({
       company: { symbol: c.symbol, name: c.name, sector: SECTOR_NAMES[c.sector] ?? c.sector },
-      candles: ps.map((p): Candle => ({ date: p.date, open: p.open, high: p.high, low: p.low, close: p.close, volume: p.volume, turnover: p.turnover })),
+      candles: adjustCandles(ps.map((p): Candle => ({ date: p.date, open: p.open, high: p.high, low: p.low, close: p.close, volume: p.volume, turnover: p.turnover, prevClose: p.prevClose ?? undefined }))),
       quarters: qs.map((q) => ({ fiscalYear: q.fiscalYear, quarter: q.quarter, eps: q.eps, netWorthPerShare: q.bookValue ?? 0, roe: q.roe ?? 0, npl: q.npl ?? undefined, car: q.car ?? undefined })),
       actions: acts,
+      latestReport: {
+        fiscalYear: c.epsFiscalYear, quarter: c.epsQuarter,
+        seenOn: qs.find((q) => q.fiscalYear === c.epsFiscalYear && q.quarter === c.epsQuarter)?.recordedAt.toISOString().slice(0, 10),
+      },
       snapshot: {
         prevClose: last.prevClose ?? undefined,
         avg120: last.avg120 ?? c.avg120 ?? undefined,

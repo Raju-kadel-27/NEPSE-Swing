@@ -13,7 +13,10 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:import-json": "tsx --env-file-if-exists=.env.local scripts/import-json.ts",
     "db:up": "docker compose up -d --wait db",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "backfill": "tsx --env-file-if-exists=.env.local scripts/backfill.ts",
+    "backtest": "tsx --env-file-if-exists=.env.local scripts/backtest.ts",
+    "train": "tsx scripts/train.ts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

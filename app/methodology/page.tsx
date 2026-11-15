@@ -4,7 +4,11 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { backtestFor } from "@/lib/backtest/results";
 import { daysToExit, HORIZON_KEYS, HORIZONS, type Weights } from "@/lib/horizon";
+import { REGIME_LABEL, type Regime } from "@/lib/scoring/regime";
+
+const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 
 // e.g. "10-45%": the range a weight takes across holding periods.
 const weightRange = (k: keyof Weights) => {
@@ -37,7 +41,7 @@ const SECTIONS = [
     body: "From daily closing prices and volume.",
     items: [
       "Trend: price against its 50-day and 200-day averages (120/180-day averages while history is short)",
-      "RSI (14): best between 45 and 65, penalised above 75 (overbought)",
+      "RSI (14): best from 45 up; in NEPSE strong momentum tends to continue, so high RSI is not penalised much, and low RSI (falling) is",
       "MACD histogram: positive and rising is best",
       "Position in the 52-week range",
       "Recent volume against its average (accumulation)",
@@ -55,6 +59,7 @@ const SECTIONS = [
       "Circuit-sized moves (±10%) in the last 3 months, a sign of operator activity",
       "Upcoming book closure (price adjusts down for bonus) and recent right shares (dilution)",
       "Recent spikes, which tend to pull back during the settlement lock",
+      "Warnings that block a buy signal: a -10% lower circuit in the last 2 weeks, a death cross (50-day average falling below the 200-day) in the last 4 weeks, or heavy selling volume",
     ],
   },
   {
@@ -191,6 +196,8 @@ export default function Methodology() {
         </CardContent>
       </Card>
 
+      <TrackRecordCard />
+
       <Alert>
         <TriangleAlert />
         <AlertTitle>Limits</AlertTitle>
@@ -200,5 +207,75 @@ export default function Methodology() {
         </AlertDescription>
       </Alert>
     </div>
+  );
+}
+
+// Backtest of the current rules: every holding period's main strategy, and the 2-month hold by market phase.
+function TrackRecordCard() {
+  const main = backtestFor("2m");
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Track record</CardTitle>
+        <CardDescription>
+          The current rules replayed day by day over {main.stocks} stocks from {main.from.slice(0, 4)} to {main.to.slice(0, 4)}, using only the
+          prices known on each day. A buy fills only if the price reaches the zone; it can&apos;t be sold before T+3; a day that touches both the
+          stop and the target counts as stopped; results are after commission, fees and 7.5% capital gains tax. Company results have no history,
+          so every company is scored as average here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Hold</TableHead>
+              <TableHead className="text-right">Trades</TableHead>
+              <TableHead className="text-right">Made money</TableHead>
+              <TableHead className="text-right">Hit target</TableHead>
+              <TableHead className="text-right">Hit stop</TableHead>
+              <TableHead className="text-right">Avg per trade</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {HORIZON_KEYS.map((k) => {
+              const st = backtestFor(k).strategies.buy_now_regime;
+              return (
+                <TableRow key={k}>
+                  <TableCell className="font-medium">{HORIZONS[k].label}</TableCell>
+                  <TableCell className="text-right tabular-nums">{st.n.toLocaleString("en-IN")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{Math.round(st.winRate * 100)}%</TableCell>
+                  <TableCell className="text-right tabular-nums">{Math.round(st.targetRate * 100)}%</TableCell>
+                  <TableCell className="text-right tabular-nums">{Math.round(st.stopRate * 100)}%</TableCell>
+                  <TableCell className={`text-right tabular-nums ${st.avgNetPct >= 0 ? "text-success" : "text-destructive"}`}>{signed(st.avgNetPct)}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">2-month hold by market phase (before the falling-market filter)</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {(["bull", "neutral", "bear"] as Regime[]).map((r) => {
+              const st = main.byRegime[r];
+              if (!st) return null;
+              return (
+                <div key={r} className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">{REGIME_LABEL[r]}</p>
+                  <p className={`text-lg font-semibold tabular-nums ${st.avgNetPct >= 0 ? "text-success" : "text-destructive"}`}>{signed(st.avgNetPct)}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{Math.round(st.winRate * 100)}% of {st.n.toLocaleString("en-IN")} trades made money</p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The market phase decides most of the result, which is why buy signals are held back while the market is falling. The typical single
+            trade loses a little; the profit comes from a minority of large winners, so the stop-loss and position size matter more than any one pick.
+            Be aware that results were much better in 2016-2021 than in 2022-2026, when buys were about break-even overall. The one filter that held
+            up in both periods is price: stocks under Rs 500 averaged +1.0% per 2-month trade in 2022-2026, against -1.8% for pricier ones, which is
+            why the picks show stocks under Rs 500 by default.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

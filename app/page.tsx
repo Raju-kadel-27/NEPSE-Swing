@@ -1,14 +1,17 @@
-import { CircleDollarSign, ListChecks, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CircleDollarSign, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { PicksExplorer } from "@/components/picks/picks-explorer";
+import { ZoneAlerts } from "@/components/picks/zone-alerts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getDataSource, getPicks } from "@/lib/data";
+import { getMarket, getMeta, getPicks, getZoneChanges } from "@/lib/data";
 import { longDate } from "@/lib/format";
 import { daysToExit, type Horizon, parseHorizon } from "@/lib/horizon";
 import { shortDay, tradeWindow } from "@/lib/market";
-import { isBuyableToday } from "@/lib/scoring";
+import { isBuyableToday, isPreferredPrice, PREFERRED_MAX_PRICE } from "@/lib/scoring";
+import { BEAR_MIN_SCORE } from "@/lib/scoring/entry";
+import { REGIME_LABEL } from "@/lib/scoring/regime";
 
 const steps = (h: Horizon) => [
   { icon: ListChecks, title: "Pick a stock", text: "Start with Buy today: good stocks trading at a sensible price right now." },
@@ -43,8 +46,8 @@ export default function Home(props: PageProps<"/">) {
 
 async function HomeView({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const horizon = parseHorizon((await searchParams).h);
-  const [ds, picks] = await Promise.all([getDataSource(), getPicks(horizon.key)]);
-  const buyToday = picks.filter(isBuyableToday).length;
+  const [ds, picks, market, zone] = await Promise.all([getMeta(), getPicks(horizon.key), getMarket(), getZoneChanges(horizon.key)]);
+  const buyToday = picks.filter((p) => isBuyableToday(p) && isPreferredPrice(p)).length;
   const up = picks.filter((p) => p.changePct > 0).length;
   const down = picks.filter((p) => p.changePct < 0).length;
   const { buyDate } = tradeWindow(ds.asOf);
@@ -55,7 +58,7 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
       <section className="space-y-3">
         <p className="text-sm font-medium text-primary">For {shortDay(buyDate)} · based on {longDate(ds.asOf)} closing prices</p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {buyToday > 0 ? <>{buyToday} NEPSE stocks worth buying for {horizon.label}</> : <>No stocks at a good buying price for {horizon.label}</>}
+          {buyToday > 0 ? <>{buyToday} NEPSE stocks under Rs {PREFERRED_MAX_PRICE} worth buying for {horizon.label}</> : <>No stocks at a good buying price for {horizon.label}</>}
         </h1>
         <p className="max-w-2xl text-muted-foreground">
           We check every listed company&apos;s results, price trend and trading volume, then tell you which ones are at a good price to buy,
@@ -66,10 +69,26 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
           <span>
             Market today: <span className="font-medium text-success">{up} up</span> · <span className="font-medium text-destructive">{down} down</span>
           </span>
+          {market && (
+            <span>
+              {REGIME_LABEL[market.regime]}: {Math.round(market.breadth * 100)}% of stocks above their 50-day average
+            </span>
+          )}
         </div>
       </section>
 
       <HorizonPicker current={horizon} />
+
+      {market?.regime === "bear" && (
+        <Alert className="border-destructive/40 bg-destructive/5">
+          <TrendingDown className="text-destructive" />
+          <AlertTitle>The market is falling</AlertTitle>
+          <AlertDescription>
+            Only {Math.round(market.breadth * 100)}% of stocks are above their 50-day average and the market index is below its own. Most buys lose
+            money in this phase, so only stocks scoring {BEAR_MIN_SCORE}+ are shown as buys. Keep positions small, or wait for the market to turn.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {exitDays <= 7 && (
         <Alert className="border-warning/40 bg-warning/5">
@@ -95,6 +114,8 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
           </div>
         ))}
       </section>
+
+      <ZoneAlerts entered={zone.entered} near={zone.near} picks={picks} horizon={horizon} />
 
       <PicksExplorer key={horizon.key} picks={picks} horizon={horizon} />
     </div>

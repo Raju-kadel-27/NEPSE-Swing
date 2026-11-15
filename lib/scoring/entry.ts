@@ -1,5 +1,6 @@
 import { sma } from "../indicators";
 import type { Candle, Snapshot } from "../types";
+import type { Regime } from "./regime";
 import { mean, r1 } from "./util";
 
 export type Signal = "ready" | "breakout" | "wait" | "not_yet" | "avoid";
@@ -7,6 +8,8 @@ export type Signal = "ready" | "breakout" | "wait" | "not_yet" | "avoid";
 export type EntryPlan = {
   signal: Signal;
   entryLow: number; entryHigh: number; stopLoss: number; target: number;
+  // A recent lower high below the target where sellers showed up before: take part of the profit there.
+  firstTarget: number | null;
   support: number | null; supportLabel: string | null; resistance: number | null;
   // % the last close sits above the top of the buy zone (negative = below the zone).
   aboveZonePct: number;
@@ -17,7 +20,12 @@ export type EntryInput = {
   candles: Candle[]; snap?: Snapshot; atr: number; total: number; excluded: boolean; spiked: boolean;
   // Holding period in trading days and the max target above the buy price; defaults suit a 3-month hold.
   days?: number; targetCap?: number; stopAtr?: number;
+  regime?: Regime;
+  warnings?: string[];
 };
+
+// In a falling market only the strongest scores still get a buy signal.
+export const BEAR_MIN_SCORE = 75;
 // Support further below than this is too far to wait for; treat the stock as extended.
 const MAX_PULLBACK = 0.15;
 
@@ -48,6 +56,21 @@ function breakoutInputs(candles: Candle[], snap: Snapshot = {}) {
   return { prevHigh: snap.high52 ?? null, volRatio: snap.avgVolume30 ? last.volume / snap.avgVolume30 : null };
 }
 
+// Recent peaks (a high above the `k` days either side) that sit below the 52-week high: the lower highs of a pullback or downtrend.
+export function lowerHighs(candles: Candle[], look = 120, k = 5): number[] {
+  const n = candles.length;
+  if (n < 2 * k + 1) return [];
+  const top = Math.max(...candles.slice(-250).map((c) => c.high));
+  const out: number[] = [];
+  for (let j = Math.max(k, n - 1 - look); j <= n - 1 - k; j++) {
+    const h = candles[j].high;
+    let peak = true;
+    for (let d = 1; d <= k && peak; d++) if (candles[j - d].high >= h || candles[j + d].high > h) peak = false;
+    if (peak && h < top * 0.99) out.push(h);
+  }
+  return out;
+}
+
 // Typical distance a stock travels over `days` trading days, used to keep short-hold targets realistic.
 const reach = (atr: number, days: number) => 1.25 * atr * Math.sqrt(days);
 
@@ -59,7 +82,24 @@ function withRisk(entryLow: number, entryHigh: number, atr: number, days: number
   return { entryLow: r1(entryLow), entryHigh: r1(entryHigh), stopLoss: r1(stopLoss), target: r1(target) };
 }
 
-export function planEntry({ candles, snap, atr, total, excluded, spiked, days = 63, targetCap = 0.35, stopAtr = 2 }: EntryInput): EntryPlan {
+export function planEntry(input: EntryInput): EntryPlan {
+  let plan = rawPlan(input);
+  // Shown, not traded: taking profit at a lower high raised the win rate but lowered the average return in the backtest.
+  if (plan.signal !== "breakout" && plan.signal !== "avoid") {
+    const ceil = lowerHighs(input.candles).filter((h) => h > plan.entryHigh * 1.01 && h < plan.target).sort((a, b) => a - b)[0];
+    if (ceil !== undefined) plan = { ...plan, firstTarget: r1(ceil) };
+  }
+  // Backtest: buys with any bearish warning lost ~1-1.7% per trade; skipping them raised the 2-month average from +0.95% to +1.15%.
+  if (input.warnings?.length && (plan.signal === "ready" || plan.signal === "breakout" || plan.signal === "wait")) {
+    return { ...plan, signal: "not_yet", note: `${input.warnings[0]}. Wait until the selling stops before buying.` };
+  }
+  if (input.regime === "bear" && (plan.signal === "ready" || plan.signal === "breakout") && input.total < BEAR_MIN_SCORE) {
+    return { ...plan, signal: "wait", note: "The price is at a buy level, but the whole market is falling (most stocks are below their 50-day average). Wait for the market to turn." };
+  }
+  return plan;
+}
+
+function rawPlan({ candles, snap, atr, total, excluded, spiked, days = 63, targetCap = 0.35, stopAtr = 2 }: EntryInput): EntryPlan {
   const close = candles.at(-1)!.close;
   const levels = levelsOf(candles, snap);
   const below = levels.filter((l) => l.value <= close * 1.01).sort((a, b) => b.value - a.value);
@@ -71,7 +111,7 @@ export function planEntry({ candles, snap, atr, total, excluded, spiked, days = 
   const make = (signal: Signal, zoneLow: number, zoneHigh: number, note: string, sup: Level | null = support): EntryPlan => ({
     signal, ...withRisk(zoneLow, zoneHigh, atr, days, targetCap, stopAtr),
     support: sup ? r1(sup.value) : null, supportLabel: sup?.label ?? null, resistance: resistance ? r1(resistance) : null,
-    aboveZonePct: r1((close / zoneHigh - 1) * 100), note,
+    aboveZonePct: r1((close / zoneHigh - 1) * 100), note, firstTarget: null,
   });
 
   // Zone sits on top of the nearest support: from the support up to one ATR above it.

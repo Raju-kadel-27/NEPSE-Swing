@@ -1,10 +1,11 @@
-// Usage: npm run scrape -- [--limit=20] [--max-age=7] [--delay=2500] [--symbols=NABIL,CHDC] [--prices-only]
+// Usage: npm run scrape -- [--limit=20] [--max-age=7] [--delay=2500] [--symbols=NABIL,CHDC] [--prices-only] [--no-results-check]
 import { closeDb } from "../lib/db";
 import { companyFreshness, EXCLUDED_SECTORS, finishRun, loadDataSource, saveCompany, savePrices, saveScores, startRun } from "../lib/db/repo";
 import { sleep } from "../lib/ingest/http";
 import { fetchCompanyDetail } from "../lib/ingest/merolagani";
 import { fetchTodayPrices } from "../lib/ingest/sharesansar";
 import { HORIZON_KEYS, HORIZONS } from "../lib/horizon";
+import { resultsInfo } from "../lib/results";
 import { rankStocks } from "../lib/scoring";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
@@ -13,6 +14,9 @@ const maxAgeDays = Number(arg("max-age") ?? 7);
 const delayMs = Math.max(1500, Number(arg("delay") ?? 2500));
 const only = arg("symbols")?.split(",").map((s) => s.trim().toUpperCase());
 const pricesOnly = process.argv.includes("--prices-only");
+const resultsCheck = !process.argv.includes("--no-results-check");
+// In the reporting window, a company still missing the latest quarter is re-checked once a day instead of weekly.
+const RESULTS_RECHECK_MS = 20 * 3_600_000;
 
 async function main() {
   const runId = await startRun();
@@ -35,7 +39,11 @@ async function main() {
           const c = fresh.get(s);
           if (!c) return true;
           if (EXCLUDED_SECTORS.includes(c.sector)) return false; // sector never changes, skip forever
-          return now - c.fetchedAt.getTime() > maxAgeDays * 86_400_000;
+          const age = now - c.fetchedAt.getTime();
+          if (age > maxAgeDays * 86_400_000) return true;
+          if (!resultsCheck || age < RESULTS_RECHECK_MS) return false;
+          const r = resultsInfo(today.date, { fiscalYear: c.epsFiscalYear, quarter: c.epsQuarter });
+          return r.inSeason && r.status !== "reported";
         })
         .slice(0, limit);
 
@@ -45,7 +53,9 @@ async function main() {
           const d = await fetchCompanyDetail(symbol);
           await saveCompany(d, today.names[symbol] ?? d.name);
           ok++;
-          console.log(`[${i + 1}/${due.length}] ${symbol}: ${d.sector}, EPS ${d.eps ?? "–"}, P/E ${d.pe ?? "–"}`);
+          const before = fresh.get(symbol);
+          const isNew = before && d.epsQuarter && (before.epsFiscalYear !== d.epsFiscalYear || before.epsQuarter !== d.epsQuarter);
+          console.log(`[${i + 1}/${due.length}] ${symbol}: ${d.sector}, EPS ${d.eps ?? "–"} (Q${d.epsQuarter ?? "?"} ${d.epsFiscalYear ?? "?"}), P/E ${d.pe ?? "–"}${isNew ? "  << NEW RESULTS" : ""}`);
         } catch (e) {
           failed++;
           console.warn(`[${i + 1}/${due.length}] ${symbol}: failed (${(e as Error).message})`);

@@ -12,8 +12,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ZoneBar } from "@/components/zone-bar";
+import { RupeeLine } from "@/components/picks/pick-card";
+import { ExternalLinks } from "@/components/external-links";
+import { AccumulationBadge, ResultsBadge } from "@/components/results-badges";
+import { TrackRecord } from "@/components/track-record";
+import { backtestFor } from "@/lib/backtest/results";
 import { HorizonPicker } from "@/components/horizon-picker";
-import { getDataSource, getPicks } from "@/lib/data";
+import { getMeta, getPicks, getStock } from "@/lib/data";
 import { horizonQuery, parseHorizon } from "@/lib/horizon";
 import { npr, num, pctFrom } from "@/lib/format";
 import { sma } from "@/lib/indicators";
@@ -23,7 +28,7 @@ import type { Pick } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export async function generateStaticParams() {
-  return (await getDataSource()).stocks.map((s) => ({ symbol: s.company.symbol }));
+  return (await getMeta()).symbols.map((symbol) => ({ symbol }));
 }
 
 export async function generateMetadata(props: PageProps<"/stock/[symbol]">): Promise<Metadata> {
@@ -100,8 +105,7 @@ export default function StockPage(props: PageProps<"/stock/[symbol]">) {
 async function StockView({ params, searchParams }: { params: PageProps<"/stock/[symbol]">["params"]; searchParams: PageProps<"/stock/[symbol]">["searchParams"] }) {
   const [{ symbol }, query] = await Promise.all([params, searchParams]);
   const horizon = parseHorizon(query.h);
-  const [ds, picks] = await Promise.all([getDataSource(), getPicks(horizon.key)]);
-  const stock = ds.stocks.find((s) => s.company.symbol === symbol.toUpperCase());
+  const [stock, picks] = await Promise.all([getStock(symbol.toUpperCase()), getPicks(horizon.key)]);
   const pick = picks.find((p) => p.symbol === symbol.toUpperCase());
   if (!stock || !pick) notFound();
 
@@ -111,6 +115,7 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
     .map((c, i) => ({ date: c.date, close: c.close, sma50: s50[i] == null ? null : +s50[i]!.toFixed(1), sma200: s200[i] == null ? null : +s200[i]!.toFixed(1) }))
     .slice(-180);
   const m = pick.metrics;
+  const bt = backtestFor(horizon.key);
   const hasLongAverages = m.sma50 !== null && m.sma200 !== null;
 
   return (
@@ -126,6 +131,7 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
             <Badge variant="secondary">{pick.sector}</Badge>
           </div>
           <p className="text-muted-foreground">{pick.name}</p>
+          <ExternalLinks symbol={pick.symbol} className="mt-2" />
         </div>
         <div className="text-right">
           <div className="text-3xl font-semibold tabular-nums">Rs {num(pick.price)}</div>
@@ -141,6 +147,8 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
             <div className="flex flex-wrap items-center gap-2">
               <SignalBadge signal={pick.signal} />
               <span className="text-xs text-muted-foreground">for a {horizon.adj} hold</span>
+              <AccumulationBadge p={pick} />
+              <ResultsBadge p={pick} />
             </div>
             <p className="text-xl font-semibold tracking-tight sm:text-2xl">{headline(pick)}</p>
             <p className="text-sm text-muted-foreground">{pick.note}</p>
@@ -154,6 +162,8 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
           </div>
 
           <ZoneBar stop={pick.stopLoss} low={pick.entryLow} high={pick.entryHigh} target={pick.target} price={pick.price} />
+          <RupeeLine p={pick} className="text-sm" />
+          <TrackRecord symbol={pick.symbol} stats={bt.bySymbol[pick.symbol]} from={bt.from} className="border-t pt-4" />
         </CardContent>
       </Card>
 
@@ -235,7 +245,9 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
             <Card>
               <CardContent>
                 <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Metric label="EPS (annualised)" value={m.eps == null ? "–" : `Rs ${num(m.eps)}`} />
                   <Metric label="P/E (price ÷ earnings)" value={num(m.pe)} />
+                  <Metric label="1-year change (incl. bonus)" value={m.change1y == null ? "Not enough data yet" : `${m.change1y > 0 ? "+" : ""}${num(m.change1y)}%`} />
                   <Metric label="P/B (price ÷ book value)" value={num(m.pbv, 2)} />
                   <Metric label="Return on equity" value={m.roe == null ? "–" : `${num(m.roe)}%`} />
                   <Metric label="Earnings growth (YoY)" value={m.epsGrowthYoY == null ? "Not enough data yet" : `${(m.epsGrowthYoY * 100).toFixed(0)}%`} />

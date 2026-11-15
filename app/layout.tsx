@@ -4,7 +4,7 @@ import { Info } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { getDataSource } from "@/lib/data";
+import { getMeta } from "@/lib/data";
 import { longDate } from "@/lib/format";
 import "./globals.css";
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const { isDemo, asOf, historyDays } = await getDataSource();
+  const { isDemo, asOf, historyDays } = await getMeta();
 
   const status = (
     <span className="hidden items-center gap-2 rounded-full border px-2.5 py-1 text-xs text-muted-foreground sm:inline-flex">
