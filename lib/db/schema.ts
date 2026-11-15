@@ -61,6 +61,27 @@ export const corporateActions = pgTable("corporate_actions", {
   bookClosureDate: date("book_closure_date"),
 }, (t) => [primaryKey({ columns: [t.symbol, t.fiscalYear] })]);
 
+// Dated copy of the Merolagani fundamentals, one per company per day fetched, so trends survive the overwrite in `companies`.
+export const companySnapshots = pgTable("company_snapshots", {
+  symbol: text("symbol").notNull(),
+  date: date("date").notNull(),
+  eps: real("eps"),
+  epsFiscalYear: text("eps_fiscal_year"),
+  epsQuarter: smallint("eps_quarter"),
+  pe: real("pe"),
+  bookValue: real("book_value"),
+  pbv: real("pbv"),
+  sharesOutstanding: real("shares_outstanding"),
+  marketCap: real("market_cap"),
+}, (t) => [primaryKey({ columns: [t.symbol, t.date] })]);
+
+// NRB money-market data per day: weighted average interbank rate (%) and banks' excess liquidity (Rs million).
+export const moneyDaily = pgTable("money_daily", {
+  date: date("date").primaryKey(),
+  interbankRate: real("interbank_rate"),
+  excessLiquidity: real("excess_liquidity"),
+});
+
 // One row per stock per trading day, so past picks can be backtested against what happened next.
 export const scores = pgTable("scores", {
   symbol: text("symbol").notNull(),

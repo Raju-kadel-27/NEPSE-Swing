@@ -4,6 +4,7 @@ import { groupStats, replayStock, STRATEGY_LABEL, type Strategy, summarize, type
 import { closeDb } from "../lib/db";
 import { loadDataSource } from "../lib/db/repo";
 import { HORIZON_KEYS, HORIZONS, type HorizonKey } from "../lib/horizon";
+import { type MoneyCondition, moneyCondition } from "../lib/scoring/money";
 import { marketSeries } from "../lib/scoring/regime";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
@@ -23,6 +24,8 @@ async function main() {
   const ds = await loadDataSource(days);
   if (!ds) throw new Error("No prices in the database; run npm run backfill first");
   const market = new Map(marketSeries(ds.stocks.map((s) => s.candles)).map((m) => [m.date, m]));
+  const memo = new Map<string, MoneyCondition | null>();
+  const moneyOn = (d: string) => (memo.has(d) ? memo.get(d)! : memo.set(d, moneyCondition(ds.rates, d)).get(d)!);
   const stocks = ds.stocks.filter((s) => !only || only.includes(s.company.symbol));
   mkdirSync(OUT, { recursive: true });
   mkdirSync(TRADES, { recursive: true });
@@ -33,7 +36,7 @@ async function main() {
     const started = Date.now();
     const trades: Trade[] = [];
     for (const [i, s] of stocks.entries()) {
-      trades.push(...replayStock(s, horizon, market, STRATEGIES));
+      trades.push(...replayStock(s, horizon, market, STRATEGIES, moneyOn));
       if ((i + 1) % 50 === 0) console.log(`  ${key}: ${i + 1}/${stocks.length} stocks, ${trades.length} trades`);
     }
     const by = (k: Strategy) => trades.filter((t) => t.strategy === k);
@@ -44,6 +47,7 @@ async function main() {
       strategies: Object.fromEntries(STRATEGIES.map((k) => [k, { label: STRATEGY_LABEL[k], ...summarize(by(k)) }])),
       bySignal: groupStats(main, (t) => t.signal),
       byRegime: groupStats(by("buy_now"), (t) => t.regime),
+      byMoney: groupStats(by("buy_now"), (t) => t.money),
       byYear: groupStats(main, (t) => t.fillDate.slice(0, 4)),
       byScore: groupStats(main, (t) => bucket(t.x.total)),
       bySector: groupStats(main, (t) => t.sector),
@@ -53,6 +57,7 @@ async function main() {
     writeFileSync(`${TRADES}/trades-${key}.json`, JSON.stringify(trades));
     console.log(`\n${horizon.label} hold, ${summary.from} to ${summary.to}, ${stocks.length} stocks (${Math.round((Date.now() - started) / 1000)}s)`);
     console.table(Object.fromEntries(Object.entries(summary.strategies).map(([k, v]) => [k, { trades: v.n, win: v.winRate, target: v.targetRate, stop: v.stopRate, "avg net Rs/share": v.avgNetPerShare, "avg net %": v.avgNetPct, "profit factor": v.profitFactor }])));
+    console.table(Object.fromEntries(Object.entries(summary.byMoney).map(([k, v]) => [`money ${k}`, { trades: v.n, win: v.winRate, "avg net %": v.avgNetPct }])));
     console.table(Object.fromEntries(Object.entries(summary.byRegime).map(([k, v]) => [k, { trades: v.n, win: v.winRate, "avg net %": v.avgNetPct }])));
   }
 }

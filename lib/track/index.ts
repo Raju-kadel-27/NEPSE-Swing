@@ -12,6 +12,15 @@ export type SavedPick = {
 export type Status = "waiting" | "missed" | "open" | "target" | "stop" | "time";
 export const CLOSED: Status[] = ["target", "stop", "time"];
 
+// Where the price went after the pick, to today, ignoring the stop and the holding period.
+export type PriceMove = {
+  from: number; fromDate: string; bought: boolean; // the fill price if bought, else the pick-day close
+  last: number; lastDate: string; days: number; // latest close and trading days since `fromDate`
+  changePct: number; netIfSoldPct: number; // gross change, and net of costs if sold at the latest close
+  bestPct: number; worstPct: number; // highest high and lowest low since, against `from`
+  targetReach: number | null; // share of the way from `from` to the target at the best high (0-1), null if the target was at or below `from`
+};
+
 export type GradedPick = SavedPick & {
   status: Status;
   // Levels rescaled to today's bonus/right-adjusted prices, so they line up with the candles.
@@ -20,18 +29,37 @@ export type GradedPick = SavedPick & {
   exitDate: string | null; exit: number | null; // for open picks: the latest close, as if sold today
   heldDays: number | null; netPct: number | null;
   marketPct: number | null; // median NEPSE stock over the same days, for comparison
+  move: PriceMove | null;
+  moveMarketPct: number | null; // median NEPSE stock over the `move` days
 };
 
 const FILL = FILL_DAYS.buy_now;
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
 // Grades one pick against the candles after it, with the backtest's rules (fill within FILL days, T+3, stop before target, costs).
-export function gradePick(p: SavedPick, cs: Candle[], holdDays: number): Omit<GradedPick, "marketPct"> | null {
+export function priceMove(cs: Candle[], i: number, target: number, fill: { index: number; price: number } | null): PriceMove {
+  const start = fill?.index ?? i, from = fill?.price ?? cs[i].close, last = cs.at(-1)!;
+  let hi = from, lo = from;
+  for (let d = start + 1; d < cs.length; d++) {
+    hi = Math.max(hi, cs[d].high);
+    lo = Math.min(lo, cs[d].low);
+  }
+  const pctOf = (x: number) => r2((x / from - 1) * 100);
+  return {
+    from: r2(from), fromDate: cs[start].date, bought: fill !== null,
+    last: last.close, lastDate: last.date, days: cs.length - 1 - start,
+    changePct: pctOf(last.close), netIfSoldPct: r2((netPerShare(from, last.close) / from) * 100),
+    bestPct: pctOf(hi), worstPct: pctOf(lo),
+    targetReach: target > from ? r2(Math.min(1, Math.max(0, (hi - from) / (target - from)))) : null,
+  };
+}
+
+export function gradePick(p: SavedPick, cs: Candle[], holdDays: number): Omit<GradedPick, "marketPct" | "move" | "moveMarketPct"> & { fillIndex: number } | null {
   const i = cs.findIndex((c) => c.date === p.asOf);
   if (i < 0) return null;
   const k = cs[i].close / p.price;
   const lv = { entryLow: p.entryLow * k, entryHigh: p.entryHigh * k, stopLoss: p.stopLoss * k, target: p.target * k };
-  const base = { ...p, levels: lv, fillDate: null, entry: null, exitDate: null, exit: null, heldDays: null, netPct: null };
+  const base = { ...p, levels: lv, fillDate: null, entry: null, exitDate: null, exit: null, heldDays: null, netPct: null, fillIndex: -1 };
 
   let f = -1, entry = 0;
   for (let d = i + 1; d <= Math.min(i + FILL, cs.length - 1); d++) {
@@ -41,7 +69,7 @@ export function gradePick(p: SavedPick, cs: Candle[], holdDays: number): Omit<Gr
   if (f < 0) return { ...base, status: cs.length - 1 - i >= FILL ? "missed" : "waiting" };
 
   const done = (d: number, exit: number, status: Status) => ({
-    ...base, status, fillDate: cs[f].date, entry, exitDate: cs[d].date, exit, heldDays: d - f, netPct: r2((netPerShare(entry, exit) / entry) * 100),
+    ...base, status, fillIndex: f, fillDate: cs[f].date, entry, exitDate: cs[d].date, exit, heldDays: d - f, netPct: r2((netPerShare(entry, exit) / entry) * 100),
   });
   const last = f + holdDays;
   for (let d = f + SELLABLE_AFTER_TRADING_DAYS; d <= Math.min(last, cs.length - 1); d++) {
@@ -62,11 +90,18 @@ export function gradePicks(saved: SavedPick[], candles: Map<string, Candle[]>, h
   for (const p of sorted) {
     const cs = candles.get(p.symbol);
     if (!cs || (busyUntil.get(p.symbol) ?? "") >= p.asOf) continue;
-    const g = gradePick(p, cs, holdDays);
-    if (!g) continue;
+    const graded = gradePick(p, cs, holdDays);
+    if (!graded) continue;
+    const { fillIndex, ...g } = graded;
+    const i = cs.findIndex((c) => c.date === p.asOf);
+    const move = priceMove(cs, i, g.levels.target, fillIndex >= 0 ? { index: fillIndex, price: g.entry! } : null);
     const until = g.status === "waiting" || g.status === "open" ? "9999" : g.exitDate ?? cs[Math.min(cs.findIndex((c) => c.date === p.asOf) + FILL, cs.length - 1)].date;
     busyUntil.set(p.symbol, until);
-    out.push({ ...g, marketPct: g.fillDate && g.exitDate ? marketChange(candles, g.fillDate, g.exitDate) : null });
+    out.push({
+      ...g, move,
+      marketPct: g.fillDate && g.exitDate ? marketChange(candles, g.fillDate, g.exitDate) : null,
+      moveMarketPct: move.days > 0 ? marketChange(candles, move.fromDate, move.lastDate) : null,
+    });
   }
   return out.sort((a, b) => b.asOf.localeCompare(a.asOf) || a.symbol.localeCompare(b.symbol));
 }
@@ -88,6 +123,27 @@ export type TrackSummary = {
   winRate: number | null; avgNetPct: number | null; medianNetPct: number | null; avgMarketPct: number | null;
   openAvgNetPct: number | null; targets: number; stops: number; timeExits: number;
 };
+
+export type MoveSummary = {
+  picks: number; tracked: number; up: number; inProfit: number; halfway: number; reachedTarget: number;
+  avgChangePct: number | null; medianChangePct: number | null; avgBestPct: number | null; avgMarketPct: number | null;
+};
+
+// Price-since-pick view over picks with at least one day after the reference day.
+export function summarizeMoves(g: GradedPick[]): MoveSummary {
+  const m = g.flatMap((p) => (p.move && p.move.days > 0 ? [p] : []));
+  const ch = m.map((p) => p.move!.changePct).sort((a, b) => a - b);
+  return {
+    picks: g.length, tracked: m.length,
+    up: m.filter((p) => p.move!.changePct > 0).length,
+    inProfit: m.filter((p) => p.move!.netIfSoldPct > 0).length,
+    halfway: m.filter((p) => (p.move!.targetReach ?? 0) >= 0.5).length,
+    reachedTarget: m.filter((p) => p.move!.targetReach === 1).length,
+    avgChangePct: avg(ch), medianChangePct: ch.length ? ch[Math.floor(ch.length / 2)] : null,
+    avgBestPct: avg(m.map((p) => p.move!.bestPct)),
+    avgMarketPct: avg(m.flatMap((p) => (p.moveMarketPct == null ? [] : [p.moveMarketPct]))),
+  };
+}
 
 const avg = (xs: number[]) => (xs.length ? r2(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 

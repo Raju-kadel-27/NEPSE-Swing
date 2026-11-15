@@ -3,6 +3,7 @@ import { hasDatabase } from "../db";
 import { loadDataSource, loadPickHistory } from "../db/repo";
 import { HORIZONS, type HorizonKey } from "../horizon";
 import { marketToday, previousDay, rankStocks, zoneChanges } from "../scoring";
+import { moneyCondition } from "../scoring/money";
 import { type MarketDay, marketSeries } from "../scoring/regime";
 import { gradePicks } from "../track";
 import type { DataSource, Pick, StockData } from "../types";
@@ -10,7 +11,7 @@ import { DEMO_AS_OF, getDemoStocks } from "./demo";
 
 export const MARKET_DATA_TAG = "market-data";
 
-const demo = (): DataSource => ({ stocks: getDemoStocks(), isDemo: true, asOf: DEMO_AS_OF, historyDays: 420 });
+const demo = (): DataSource => ({ stocks: getDemoStocks(), isDemo: true, asOf: DEMO_AS_OF, historyDays: 420, rates: [] });
 
 // The full dataset is ~10 MB, too big to cache per page; share one load per process for a few minutes instead.
 const MEMO_MS = 5 * 60_000;
@@ -68,6 +69,7 @@ export async function getMarketOverview(days = 120) {
     last: last && last.date === ds.asOf ? last : null,
     changePct: last && prev ? (last.index / prev.index - 1) * 100 : null,
     up, down, flat,
+    money: moneyCondition(ds.rates, ds.asOf),
   };
 }
 

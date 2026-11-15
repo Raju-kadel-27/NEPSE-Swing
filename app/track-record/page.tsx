@@ -1,4 +1,4 @@
-import { History, Info } from "lucide-react";
+import { ChartNoAxesCombined, History, Info, ListChecks } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -7,12 +7,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { backtestFor } from "@/lib/backtest/results";
 import { getTrackRecord } from "@/lib/data";
 import { longDate, num, signedPct } from "@/lib/format";
 import { type Horizon, horizonQuery, parseHorizon } from "@/lib/horizon";
 import { PREFERRED_MAX_PRICE } from "@/lib/scoring";
-import { type GradedPick, type Status, summarizeTrack, type TrackSummary } from "@/lib/track";
+import { type GradedPick, type MoveSummary, type Status, summarizeMoves, summarizeTrack, type TrackSummary } from "@/lib/track";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Track record" };
@@ -70,30 +71,39 @@ async function TrackView({ searchParams }: { searchParams: PageProps<"/track-rec
           <AlertDescription>The track record starts with the first daily update that saves picks to the database.</AlertDescription>
         </Alert>
       ) : (
-        <>
-          {summarizeTrack(picks).closed < MIN_CLOSED && (
-            <Alert>
-              <Info />
-              <AlertTitle>Too early to judge</AlertTitle>
-              <AlertDescription>
-                {summarizeTrack(picks).closed === 1 ? "Only 1 trade has" : `Only ${summarizeTrack(picks).closed} trades have`} finished
-                so far for {horizon.adj} holds. Wait for at least {MIN_CLOSED} before trusting
-                the averages; a few lucky or unlucky trades swing them a lot. The backtest expects about {signedPct(bt.avgNetPct, 1)} per trade
-                with {Math.round(bt.winRate * 100)}% winners.
-              </AlertDescription>
-            </Alert>
-          )}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <SummaryBlock title={`Headline picks (under Rs ${PREFERRED_MAX_PRICE})`} s={summarizeTrack(cheap)} />
-            <SummaryBlock title="All Buy today picks" s={summarizeTrack(picks)} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            &ldquo;Typical stock&rdquo; is the median NEPSE stock&apos;s price change over the same days as each finished trade, before costs, so you
-            can see whether the picks beat simply being in the market. Backtest for comparison ({backtestFor(horizon.key).from.slice(0, 4)}
-            –{backtestFor(horizon.key).to.slice(0, 4)}, same rules): {signedPct(bt.avgNetPct, 1)} per trade, {Math.round(bt.winRate * 100)}% winners.
-          </p>
-          <PicksLog picks={picks} horizon={horizon} />
-        </>
+        <Tabs defaultValue="results" className="gap-6">
+          <TabsList className="h-auto! w-full sm:w-fit">
+            <TabsTrigger value="results" className="px-3 py-1.5"><ListChecks /> Trade results</TabsTrigger>
+            <TabsTrigger value="moves" className="px-3 py-1.5"><ChartNoAxesCombined /> Price since pick</TabsTrigger>
+          </TabsList>
+          <TabsContent value="results" className="space-y-6">
+            {summarizeTrack(picks).closed < MIN_CLOSED && (
+              <Alert>
+                <Info />
+                <AlertTitle>Too early to judge</AlertTitle>
+                <AlertDescription>
+                  {summarizeTrack(picks).closed === 1 ? "Only 1 trade has" : `Only ${summarizeTrack(picks).closed} trades have`} finished
+                  so far for {horizon.adj} holds. Wait for at least {MIN_CLOSED} before trusting
+                  the averages; a few lucky or unlucky trades swing them a lot. The backtest expects about {signedPct(bt.avgNetPct, 1)} per trade
+                  with {Math.round(bt.winRate * 100)}% winners.
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <SummaryBlock title={`Headline picks (under Rs ${PREFERRED_MAX_PRICE})`} s={summarizeTrack(cheap)} />
+              <SummaryBlock title="All Buy today picks" s={summarizeTrack(picks)} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              &ldquo;Typical stock&rdquo; is the median NEPSE stock&apos;s price change over the same days as each finished trade, before costs, so you
+              can see whether the picks beat simply being in the market. Backtest for comparison ({backtestFor(horizon.key).from.slice(0, 4)}
+              –{backtestFor(horizon.key).to.slice(0, 4)}, same rules): {signedPct(bt.avgNetPct, 1)} per trade, {Math.round(bt.winRate * 100)}% winners.
+            </p>
+            <PicksLog picks={picks} horizon={horizon} />
+          </TabsContent>
+          <TabsContent value="moves" className="space-y-6">
+            <MovesView picks={picks} cheap={cheap} horizon={horizon} />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
@@ -175,6 +185,138 @@ function PicksLog({ picks, horizon }: { picks: GradedPick[]; horizon: Horizon })
       <p className="text-xs text-muted-foreground">
         Buy, stop and target are the levels published that day. If a bonus or right share was issued since, &ldquo;Bought&rdquo; and
         &ldquo;Sold / now&rdquo; are in today&apos;s adjusted prices.
+      </p>
+    </section>
+  );
+}
+
+function MovesView({ picks, cheap, horizon }: { picks: GradedPick[]; cheap: GradedPick[]; horizon: Horizon }) {
+  const all = summarizeMoves(picks);
+  return (
+    <>
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        Did the stock actually go up after we picked it, even if it never reached the target? Each pick is measured from the price you would
+        have paid (or the closing price on the pick day, if the price never dipped into the buy range) to the latest close, ignoring the stop
+        and the {horizon.label} limit. It shows whether the picks point the right way; the Trade results tab shows what following the plan earned.
+      </p>
+      {all.tracked === 0 ? (
+        <Alert>
+          <Info />
+          <AlertTitle>Nothing to measure yet</AlertTitle>
+          <AlertDescription>Picks show up here from the first trading day after they were made.</AlertDescription>
+        </Alert>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <MoveBlock title={`Headline picks (under Rs ${PREFERRED_MAX_PRICE})`} s={summarizeMoves(cheap)} />
+          <MoveBlock title="All Buy today picks" s={all} />
+        </div>
+      )}
+      <MovesLog picks={picks} horizon={horizon} />
+    </>
+  );
+}
+
+const share = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "–");
+
+function MoveBlock({ title, s }: { title: string; s: MoveSummary }) {
+  const tiles = [
+    { label: "Up since pick", value: share(s.up, s.tracked), sub: `${s.up} of ${s.tracked} picks above their price` },
+    { label: "In profit if sold now", value: share(s.inProfit, s.tracked), sub: "after fees and tax" },
+    { label: "Avg change", value: pct(s.avgChangePct), sub: `median ${pct(s.medianChangePct)}`, cls: tone(s.avgChangePct) },
+    { label: "Best price reached", value: pct(s.avgBestPct), sub: "average high point since pick", cls: tone(s.avgBestPct) },
+    { label: "Halfway to target", value: share(s.halfway, s.tracked), sub: `${s.reachedTarget} reached the target` },
+    { label: "Typical stock, same days", value: pct(s.avgMarketPct), sub: "what the market did meanwhile", cls: tone(s.avgMarketPct) },
+  ];
+  return (
+    <section className="space-y-3">
+      <h2 className="font-semibold">{title}</h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {tiles.map((t) => (
+          <Card key={t.label} size="sm">
+            <CardContent>
+              <p className="text-xs text-muted-foreground">{t.label}</p>
+              <p className={cn("mt-1 text-xl font-semibold tabular-nums", t.cls)}>{t.value}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t.sub}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Bar from the buy price (0%) to the target (100%), filled to the best price reached.
+function TargetBar({ reach, target }: { reach: number | null; target: number }) {
+  if (reach == null) return <span className="text-xs text-muted-foreground">–</span>;
+  const p = Math.round(reach * 100);
+  return (
+    <div className="min-w-28 space-y-1">
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="img" aria-label={`${p}% of the way to the target`}>
+        <div className={cn("h-full rounded-full", p >= 100 ? "bg-success" : p >= 50 ? "bg-primary" : "bg-muted-foreground/40")} style={{ width: `${p}%` }} />
+      </div>
+      <p className="text-xs text-muted-foreground tabular-nums">{p >= 100 ? "Reached" : `${p}% of the way`} · {num(target, 0)}</p>
+    </div>
+  );
+}
+
+function MovesLog({ picks, horizon }: { picks: GradedPick[]; horizon: Horizon }) {
+  const rows = picks.filter((p) => p.move && p.move.days > 0).slice(0, MAX_ROWS);
+  if (!rows.length) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="font-semibold">Every pick, newest first</h2>
+      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="pl-4">Picked on</TableHead>
+              <TableHead>Stock</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">From</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Now</TableHead>
+              <TableHead className="text-right">Change</TableHead>
+              <TableHead className="hidden text-right md:table-cell">Best / worst</TableHead>
+              <TableHead className="hidden lg:table-cell">Toward target</TableHead>
+              <TableHead className="hidden pr-4 md:table-cell">By the plan</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((p) => {
+              const m = p.move!;
+              return (
+                <TableRow key={`${p.symbol}-${p.asOf}`}>
+                  <TableCell className="pl-4 whitespace-nowrap tabular-nums">{longDate(p.asOf)}</TableCell>
+                  <TableCell>
+                    <Link href={`/stock/${p.symbol}${horizonQuery(horizon)}`} className="font-semibold hover:underline">{p.symbol}</Link>
+                    <div className="text-xs text-muted-foreground">{m.days} trading day{m.days === 1 ? "" : "s"}</div>
+                  </TableCell>
+                  <TableCell className="hidden text-right tabular-nums sm:table-cell">
+                    {num(m.from, 1)}
+                    <div className="text-xs text-muted-foreground">{m.bought ? "bought" : "pick-day close"}</div>
+                  </TableCell>
+                  <TableCell className="hidden text-right tabular-nums sm:table-cell">
+                    {num(m.last, 1)}
+                    <div className="text-xs text-muted-foreground">{longDate(m.lastDate)}</div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <span className={cn("font-medium", tone(m.changePct))}>{pct(m.changePct)}</span>
+                    <div className={cn("text-xs", m.netIfSoldPct > 0 ? "text-success" : "text-muted-foreground")}>{pct(m.netIfSoldPct)} after costs</div>
+                  </TableCell>
+                  <TableCell className="hidden text-right whitespace-nowrap tabular-nums md:table-cell">
+                    <span className="text-success">{pct(m.bestPct)}</span> <span className="text-muted-foreground">/</span> <span className="text-destructive">{pct(m.worstPct)}</span>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell"><TargetBar reach={m.targetReach} target={p.levels.target} /></TableCell>
+                  <TableCell className="hidden pr-4 md:table-cell">
+                    <span className={cn("inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", STATUS[p.status].cls)}>{STATUS[p.status].label}</span>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        &ldquo;By the plan&rdquo; is the strict result from the Trade results tab. A pick can be stopped out and still be up today: the plan sold it
+        to limit the loss, so its money was not in the later rise. Prices are adjusted for any bonus or right shares since the pick.
       </p>
     </section>
   );

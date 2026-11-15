@@ -12,11 +12,9 @@ export type RiskResult = {
   spiked: boolean; // sharp recent run-up: a bad moment to enter with the T+3 lock
 };
 
-const daysBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
-
 const npr = (x: number) => (x >= 1e7 ? `${r1(x / 1e7)} crore` : `${r1(x / 1e5)} lakh`);
 
-export function scoreRisk(candles: Candle[], actions: Action[], asOf: string, snap: Snapshot = {}): RiskResult {
+export function scoreRisk(candles: Candle[], actions: Action[], snap: Snapshot = {}): RiskResult {
   const reasons: string[] = [];
   const flags: string[] = [];
   const parts: Component[] = [];
@@ -61,15 +59,9 @@ export function scoreRisk(candles: Candle[], actions: Action[], asOf: string, sn
     }
   }
 
+  // No book-closure penalty: in the 2016-2026 backtest, buys within 30 days before a bonus/right ex-date did better (+4.6% vs +2.2% per 2-month trade).
   let event = 100;
   const last = actions.at(-1);
-  if (last?.bookClosureDate) {
-    const d = daysBetween(asOf, last.bookClosureDate);
-    if (d >= 0 && d <= 45) {
-      event = 50;
-      flags.push(`Book closure on ${last.bookClosureDate}: the price adjusts down for bonus after it`);
-    }
-  }
   if (last?.rightRatio) {
     event = Math.min(event, 30);
     flags.push(`Right share issue pending (${last.rightRatio}), dilutes existing holders`);

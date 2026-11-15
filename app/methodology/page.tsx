@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { backtestFor } from "@/lib/backtest/results";
 import { daysToExit, HORIZON_KEYS, HORIZONS, type Weights } from "@/lib/horizon";
+import { TIGHT_RATE } from "@/lib/scoring/money";
 import { REGIME_LABEL, type Regime } from "@/lib/scoring/regime";
 
 const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
@@ -31,6 +32,7 @@ const SECTIONS = [
       "Return on equity",
       "Dividend (cash plus bonus) from the last two fiscal years",
       "Banks: non-performing loans (NPL) and capital adequacy (CAR) against the NRB minimum, when available",
+      "Shown but not scored yet: EPS up (or down) year on year over several quarters in a row, faster earnings growth, and book value per share growth. These count once a year of quarters is stored and they can be backtested",
     ],
   },
   {
@@ -57,7 +59,7 @@ const SECTIONS = [
       "Average daily turnover. Stocks under Rs 10 lakh a day are marked illiquid",
       "Volatility (average daily range as a % of price)",
       "Circuit-sized moves (±10%) in the last 3 months, a sign of operator activity",
-      "Upcoming book closure (price adjusts down for bonus) and recent right shares (dilution)",
+      "Recent right shares (dilution). An upcoming book closure is not penalised: in the backtest, buys within a month before a bonus or right adjustment did better than average",
       "Recent spikes, which tend to pull back during the settlement lock",
       "Warnings that block a buy signal: a -10% lower circuit in the last 2 weeks, a death cross (50-day average falling below the 200-day) in the last 4 weeks, or heavy selling volume",
     ],
@@ -75,6 +77,7 @@ const SECTIONS = [
       "Breakout: closed at a new high on at least 1.3x normal volume. The zone sits just above the old high",
       "Wait for pullback: a good stock trading above its zone. Set a limit order at the top of the zone",
       "Not yet: price is below every support. Wait until it closes back above the nearest average",
+      `Tight money: while banks lend to each other at ${TIGHT_RATE}% or more (NRB weighted average interbank rate, 30-day average), no stock is a buy`,
     ],
   },
   {
@@ -98,7 +101,8 @@ const SECTIONS = [
     body: "Public pages, collected once each trading day.",
     items: [
       "Prices: ShareSansar's Today's Share Price page, every listed stock. Each day is stored, so price history grows over time",
-      "Fundamentals: each company's Merolagani page (latest EPS, P/E, book value, dividend, bonus and right-share history), refreshed weekly",
+      "Fundamentals: each company's Merolagani page (latest EPS, P/E, book value, dividend, bonus and right-share history), refreshed weekly. Each fetch is kept with its date, so trends build up over time",
+      "Money conditions: Nepal Rastra Bank's daily interbank rate and liquidity series (from 2016), plus the current rate from its Short Term Interest Rates page each day",
       "EPS growth needs the same quarter a year earlier, so it fills in as quarters are collected",
       "Mutual funds, debentures, bonds and promoter shares are skipped",
     ],
@@ -267,10 +271,29 @@ function TrackRecordCard() {
               );
             })}
           </div>
+          {main.byMoney && (
+            <>
+              <p className="pt-2 text-sm font-medium">2-month hold by money conditions (before the tight-money filter)</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {([["easy", `Interbank rate under ${TIGHT_RATE}%`], ["tight", `Interbank rate ${TIGHT_RATE}% or more`]] as const).map(([k, label]) => {
+                  const st = main.byMoney![k];
+                  if (!st) return null;
+                  return (
+                    <div key={k} className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className={`text-lg font-semibold tabular-nums ${st.avgNetPct >= 0 ? "text-success" : "text-destructive"}`}>{signed(st.avgNetPct)}</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">{Math.round(st.winRate * 100)}% of {st.n.toLocaleString("en-IN")} trades made money</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
           <p className="text-xs text-muted-foreground">
-            The market phase decides most of the result, which is why buy signals are held back while the market is falling. The typical single
+            The market phase and the cost of money decide most of the result, which is why buy signals are held back while the market is falling
+            or banks are short of cash (the interbank rate was 4% or more in early 2018, the first half of 2019, and from late 2021 to late 2023). The typical single
             trade loses a little; the profit comes from a minority of large winners, so the stop-loss and position size matter more than any one pick.
-            Be aware that results were much better in 2016-2021 than in 2022-2026, when buys were about break-even overall. The one filter that held
+            Be aware that results were much better in 2016-2021 than in 2022-2026, when buys made under 1% per trade even with both filters. The one filter that held
             up in both periods is price: stocks under Rs 500 averaged +1.0% per 2-month trade in 2022-2026, against -1.8% for pricier ones, which is
             why the picks show stocks under Rs 500 by default.
           </p>

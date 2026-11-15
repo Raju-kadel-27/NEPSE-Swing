@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normFY, parseCompanyDetail } from "./merolagani";
+import { parseCurrentInterbank } from "./nrb";
 import { parseTodayPrices } from "./sharesansar";
 
 const row = (label: string, value: string) => `<tbody><tr><th>${label}</th><td>${value}</td></tr></tbody>`;
@@ -58,5 +59,20 @@ describe("sharesansar parser", () => {
     expect(t.rows).toHaveLength(1);
     expect(t.rows[0]).toMatchObject({ symbol: "ABC", close: 105.5, volume: 1905, turnover: 201000, prevClose: 100, avg120: 98, high52: 120 });
     expect(t.names.ABC).toBe("Abc Limited");
+  });
+});
+
+describe("parseCurrentInterbank", () => {
+  it("reads the current and previous weighted average interbank rate", () => {
+    const html = `<table><tbody><tr><td><div>Weighted Average Interbank Rate (Daily)</div><div class="text-muted">Last updated: November 6, 2026</div></td>
+      <td><div> 2.7500</div><div>November 6, 2026</div></td><td><div> 2.6100</div><div>November 5, 2026</div></td></tr></tbody></table>
+      <table><tbody><tr><td><div>Weighted Average Reverse Repo Rate</div></td><td><div>4.2753</div><div>June 25, 2023</div></td></tr></tbody></table>`;
+    expect(parseCurrentInterbank(html)).toEqual([
+      { date: "2026-11-06", interbankRate: 2.75, excessLiquidity: null },
+      { date: "2026-11-05", interbankRate: 2.61, excessLiquidity: null },
+    ]);
+  });
+  it("returns nothing when the table is missing", () => {
+    expect(parseCurrentInterbank("<html></html>")).toEqual([]);
   });
 });

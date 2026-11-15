@@ -1,5 +1,6 @@
 import { sma } from "../indicators";
 import type { Candle, Snapshot } from "../types";
+import { TIGHT_MONEY_NOTE } from "./money";
 import type { Regime } from "./regime";
 import { mean, r1 } from "./util";
 
@@ -22,6 +23,8 @@ export type EntryInput = {
   days?: number; targetCap?: number; stopAtr?: number;
   regime?: Regime;
   warnings?: string[];
+  // 30-day average interbank rate when money is tight (see money.ts), else undefined.
+  tightMoneyRate?: number;
 };
 
 // In a falling market only the strongest scores still get a buy signal.
@@ -96,6 +99,9 @@ export function planEntry(input: EntryInput): EntryPlan {
   // Backtest: buys with any bearish warning lost ~1-1.7% per trade; skipping them raised the 2-month average from +0.95% to +1.15%.
   if (input.warnings?.length && (plan.signal === "ready" || plan.signal === "breakout" || plan.signal === "wait")) {
     return { ...plan, signal: "not_yet", note: `${input.warnings[0]}. Wait until the selling stops before buying.` };
+  }
+  if (input.tightMoneyRate !== undefined && (plan.signal === "ready" || plan.signal === "breakout" || plan.signal === "wait")) {
+    return { ...plan, signal: "not_yet", note: TIGHT_MONEY_NOTE(input.tightMoneyRate) };
   }
   if (input.regime === "bear" && (plan.signal === "ready" || plan.signal === "breakout") && input.total < BEAR_MIN_SCORE) {
     return { ...plan, signal: "wait", note: "The price is at a buy level, but the whole market is falling (most stocks are below their 50-day average). Wait for the market to turn." };

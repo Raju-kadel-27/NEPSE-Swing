@@ -11,7 +11,7 @@ import r45d from "./results/45d.json";
 export type BacktestSummary = {
   horizon: HorizonKey; asOf: string; generatedAt: string; since: string; stocks: number; from: string; to: string;
   strategies: Record<Strategy, Stats & { label: string }>;
-  bySignal: Record<string, Stats>; byRegime: Record<string, Stats>; byYear: Record<string, Stats>;
+  bySignal: Record<string, Stats>; byRegime: Record<string, Stats>; byMoney?: Record<string, Stats>; byYear: Record<string, Stats>;
   byScore: Record<string, Stats>; bySector: Record<string, Stats>; bySymbol: Record<string, Stats>;
 };
 

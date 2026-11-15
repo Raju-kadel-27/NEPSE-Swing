@@ -4,6 +4,7 @@ import type { Horizon } from "../horizon";
 import { SELLABLE_AFTER_TRADING_DAYS } from "../market";
 import { BEAR_MIN_SCORE } from "../scoring/entry";
 import { scoreStock } from "../scoring";
+import type { MoneyCondition } from "../scoring/money";
 import type { MarketDay } from "../scoring/regime";
 import type { Candle, Pick, StockData } from "../types";
 
@@ -16,7 +17,7 @@ const NEUTRAL_FUNDAMENTAL = 50;
 export type Strategy = "buy_now" | "buy_now_regime" | "limit_wait";
 export const STRATEGY_LABEL: Record<Strategy, string> = {
   buy_now: "Buy ready/breakout picks",
-  buy_now_regime: "Same, skipping falling markets",
+  buy_now_regime: "Same, skipping falling markets and tight money",
   limit_wait: "Limit order at the zone on 'wait' picks",
 };
 // How long an unfilled buy order stays open, in trading days.
@@ -27,11 +28,13 @@ const MAX_WAIT_GAP = 15;
 export type Trade = {
   symbol: string; sector: string; strategy: Strategy; signal: string; signalDate: string; fillDate: string; exitDate: string;
   entry: number; stop: number; target: number; exit: number; outcome: "target" | "stop" | "time";
-  heldDays: number; netPerShare: number; netPct: number; regime: string; x: Features;
+  heldDays: number; netPerShare: number; netPct: number; regime: string; money: "tight" | "easy" | "unknown"; x: Features;
 };
 
-function wants(s: Strategy, p: Pick, m: MarketDay | undefined): boolean {
+// Money is judged per day by the caller; the unfiltered baseline (buy_now) ignores it.
+function wants(s: Strategy, p: Pick, m: MarketDay | undefined, money: MoneyCondition | null): boolean {
   if (p.excluded || p.total < MIN_TOTAL) return false;
+  if (s !== "buy_now" && money?.tight) return false;
   if (s === "limit_wait") return p.signal === "wait" && p.aboveZonePct > 0 && p.aboveZonePct <= MAX_WAIT_GAP;
   if (p.signal !== "ready" && p.signal !== "breakout") return false;
   return s === "buy_now" || m?.regime !== "bear" || p.total >= BEAR_MIN_SCORE;
@@ -61,7 +64,7 @@ export function simulate(cs: Candle[], i: number, p: Pick, days: number, fillDay
 }
 
 // Replays one stock day by day with only the data known on each day; one open order or position per strategy at a time.
-export function replayStock(s: StockData, horizon: Horizon, market: Map<string, MarketDay>, strategies: Strategy[]): Trade[] {
+export function replayStock(s: StockData, horizon: Horizon, market: Map<string, MarketDay>, strategies: Strategy[], moneyOn: (date: string) => MoneyCondition | null = () => null): Trade[] {
   const cs = s.candles;
   const trades: Trade[] = [];
   const busyUntil = Object.fromEntries(strategies.map((k) => [k, -1])) as Record<Strategy, number>;
@@ -71,8 +74,9 @@ export function replayStock(s: StockData, horizon: Horizon, market: Map<string, 
     const p = scoreStock(window, { pe: null, pbv: null }, cs[i].date, horizon, { fundamental: NEUTRAL_FUNDAMENTAL });
     if (!p) continue;
     const m = market.get(cs[i].date);
+    const money = moneyOn(cs[i].date);
     for (const k of strategies) {
-      if (busyUntil[k] >= i || !wants(k, p, m)) continue;
+      if (busyUntil[k] >= i || !wants(k, p, m, money)) continue;
       const r = simulate(cs, i, p, horizon.days, FILL_DAYS[k]);
       if (r === null) { busyUntil[k] = cs.length; continue; }
       if (!r.filled) { busyUntil[k] = r.until; continue; }
@@ -82,7 +86,7 @@ export function replayStock(s: StockData, horizon: Horizon, market: Map<string, 
         symbol: s.company.symbol, sector: s.company.sector, strategy: k, signal: p.signal, signalDate: cs[i].date,
         fillDate: cs[r.f].date, exitDate: cs[r.d].date, entry: r.entry, stop: p.stopLoss, target: p.target, exit: r.exit, outcome: r.outcome,
         heldDays: r.d - r.f, netPerShare: Math.round(net * 10) / 10, netPct: Math.round((net / r.entry) * 10000) / 100,
-        regime: m?.regime ?? "neutral", x: features(p, m),
+        regime: m?.regime ?? "neutral", money: money ? (money.tight ? "tight" : "easy") : "unknown", x: features(p, m),
       });
     }
   }

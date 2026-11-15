@@ -20,6 +20,39 @@ export function valuation(s: StockData, price: number) {
   };
 }
 
+export type Trend = { epsGrowth: number[]; bookGrowth: number | null };
+
+// Year-on-year EPS growth for each stored quarter that has the same quarter a year earlier (oldest first), and book value growth for the latest one.
+export function financialTrend(q: StockData["quarters"]): Trend {
+  const key = (fy: string, qtr: number) => `${fyStart(fy)}-${qtr}`;
+  const by = new Map(q.map((x) => [key(x.fiscalYear, x.quarter), x]));
+  const sorted = [...q].sort((a, b) => fyStart(a.fiscalYear) - fyStart(b.fiscalYear) || a.quarter - b.quarter);
+  const epsGrowth: number[] = [];
+  let bookGrowth: number | null = null;
+  for (const x of sorted) {
+    const prior = by.get(key(String(fyStart(x.fiscalYear) - 1).padStart(3, "0"), x.quarter));
+    if (!prior) continue;
+    if (prior.eps !== 0) epsGrowth.push((x.eps - prior.eps) / Math.abs(prior.eps));
+    if (x === sorted.at(-1) && prior.netWorthPerShare > 0 && x.netWorthPerShare > 0) bookGrowth = x.netWorthPerShare / prior.netWorthPerShare - 1;
+  }
+  return { epsGrowth, bookGrowth };
+}
+
+// Informational only until there is a year of stored quarters to backtest them: not part of the score.
+function trendNotes(t: Trend, reasons: string[], flags: string[]) {
+  const g = t.epsGrowth.slice(-4);
+  if (g.length >= 2) {
+    const ups = g.filter((x) => x > 0).length, last2 = g.slice(-2);
+    if (ups === g.length) reasons.push(`Earnings improving: EPS up year on year in each of the last ${g.length} reported quarters`);
+    else if (last2.every((x) => x < 0)) flags.push("Earnings weakening: EPS down year on year in the last 2 reported quarters");
+    if (last2[1] - last2[0] >= 0.1 && last2[1] > 0) reasons.push(`Earnings growth speeding up: ${pct(last2[0])} then ${pct(last2[1])} year on year`);
+  }
+  if (t.bookGrowth !== null) {
+    if (t.bookGrowth >= 0.1) reasons.push(`Book value per share up ${pct(t.bookGrowth)} in a year`);
+    if (t.bookGrowth <= -0.05) flags.push(`Book value per share down ${pct(-t.bookGrowth)} in a year`);
+  }
+}
+
 export function scoreFundamental(s: StockData, price: number, sector: SectorStats): FundamentalResult {
   const reasons: string[] = [];
   const flags: string[] = [];
@@ -72,5 +105,6 @@ export function scoreFundamental(s: StockData, price: number, sector: SectorStat
     if (latest.car < 11.5) flags.push(`Capital adequacy close to the NRB minimum (CAR ${latest.car}%)`);
   }
 
+  trendNotes(financialTrend(q), reasons, flags);
   return { score: weighted(parts), reasons, flags, pe, pbv, roe: latest.roe, epsGrowthYoY: growth };
 }

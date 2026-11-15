@@ -1,8 +1,9 @@
 // Usage: npm run scrape -- [--limit=20] [--max-age=7] [--delay=2500] [--symbols=NABIL,CHDC] [--prices-only] [--no-results-check]
 import { closeDb } from "../lib/db";
-import { companyFreshness, EXCLUDED_SECTORS, finishRun, loadDataSource, saveCompany, savePrices, saveScores, startRun } from "../lib/db/repo";
+import { companyFreshness, EXCLUDED_SECTORS, finishRun, loadDataSource, saveCompany, saveMoney, savePrices, saveScores, startRun } from "../lib/db/repo";
 import { sleep } from "../lib/ingest/http";
 import { fetchCompanyDetail } from "../lib/ingest/merolagani";
+import { fetchCurrentInterbank } from "../lib/ingest/nrb";
 import { fetchTodayPrices } from "../lib/ingest/sharesansar";
 import { HORIZON_KEYS, HORIZONS } from "../lib/horizon";
 import { resultsInfo } from "../lib/results";
@@ -28,6 +29,15 @@ async function main() {
     priceDate = today.date;
     pricesSaved = await savePrices(today.date, today.rows);
     console.log(`Saved ${pricesSaved} prices for ${today.date}`);
+
+    // Optional input: a failure here only leaves the money condition on older data.
+    try {
+      const rates = await fetchCurrentInterbank();
+      if (rates.length) await saveMoney(rates);
+      console.log(rates.length ? `NRB interbank rate: ${rates[0].interbankRate}% (${rates[0].date})` : "NRB interbank rate not found on the page");
+    } catch (e) {
+      console.warn(`NRB interbank rate fetch failed (${(e as Error).message})`);
+    }
 
     if (!pricesOnly) {
       const fresh = await companyFreshness();
