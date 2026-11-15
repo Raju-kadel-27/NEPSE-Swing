@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { simulate } from "../backtest";
 import { netPerShare } from "../costs";
 import type { Candle, Pick } from "../types";
-import { gradePick, gradePicks, marketChange, type SavedPick, summarizeTrack } from "./index";
+import { gradePick, gradePicks, marketChange, type SavedPick, summarizeMoves, summarizeTrack } from "./index";
 
 const date = (i: number) => new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10);
 const day = (i: number, o: number, h: number, l: number, c: number): Candle => ({ date: date(i), open: o, high: h, low: l, close: c, volume: 1000 });
@@ -82,5 +82,25 @@ describe("marketChange and summarizeTrack", () => {
     const g = gradePicks([pick(), pick({ symbol: "XYZ" })], new Map([["ABC", cs], ["XYZ", open]]), 20);
     const s = summarizeTrack(g);
     expect([s.picks, s.closed, s.open, s.targets, s.winRate]).toEqual([2, 1, 1, 1, 1]);
+  });
+});
+
+describe("price since pick", () => {
+  it("measures from the fill to the latest close, ignoring the stop and the holding period", () => {
+    const cs = flat(30);
+    cs[5] = day(5, 85, 86, 84, 85); // through the stop
+    cs[29] = day(29, 108, 112, 107, 110); // recovered later
+    const [g] = gradePicks([pick()], new Map([["ABC", cs]]), 20);
+    expect(g.status).toBe("stop");
+    expect(g.move).toMatchObject({ from: 100, bought: true, last: 110, changePct: 10, bestPct: 12, worstPct: -16, targetReach: 0.6 });
+    expect(g.move!.netIfSoldPct).toBeLessThan(10);
+  });
+
+  it("uses the pick-day close when the price never dipped into the buy range", () => {
+    const cs = Array.from({ length: 10 }, (_, i) => day(i, 110 + i, 111 + i, 109 + i, 110 + i));
+    const [g] = gradePicks([pick({ price: 110 })], new Map([["ABC", cs]]), 20);
+    expect(g.status).toBe("missed");
+    expect(g.move).toMatchObject({ from: 110, bought: false, last: 119, days: 9 });
+    expect(summarizeMoves([g])).toMatchObject({ tracked: 1, up: 1 });
   });
 });
