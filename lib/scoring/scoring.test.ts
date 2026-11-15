@@ -58,13 +58,13 @@ describe("technical", () => {
 
 describe("risk", () => {
   it("excludes illiquid stocks", () => {
-    const r = scoreRisk(candles(Array(100).fill(100), 100), [], "2026-11-12");
+    const r = scoreRisk(candles(Array(100).fill(100), 100), []);
     expect(r.avgTurnover).toBeLessThan(MIN_TURNOVER);
     expect(r.excluded).toBe(true);
   });
-  it("flags upcoming book closure and right shares", () => {
-    const r = scoreRisk(candles(Array(100).fill(100)), [{ fiscalYear: "x", cashDividendPct: 0, bonusPct: 10, bookClosureDate: "2026-12-01", rightRatio: "1:1" }], "2026-11-12");
-    expect(r.flags.some((f) => f.includes("Book closure"))).toBe(true);
+  it("flags right shares but not an upcoming book closure", () => {
+    const r = scoreRisk(candles(Array(100).fill(100)), [{ fiscalYear: "x", cashDividendPct: 0, bonusPct: 10, bookClosureDate: "2026-12-01", rightRatio: "1:1" }]);
+    expect(r.flags.some((f) => f.includes("Book closure"))).toBe(false);
     expect(r.flags.some((f) => f.includes("Right share"))).toBe(true);
   });
 });
@@ -111,7 +111,7 @@ describe("planEntry", () => {
 describe("rankStocks", () => {
   it("puts excluded stocks last", () => {
     const thin = stock({ company: { symbol: "THIN", name: "Thin", sector: "Commercial Banks" }, candles: candles(Array.from({ length: 260 }, (_, i) => 100 + i * 0.2), 10) });
-    const ranked = rankStocks({ stocks: [thin, stock()], isDemo: true, asOf: "2026-11-12", historyDays: 260 });
+    const ranked = rankStocks({ stocks: [thin, stock()], isDemo: true, asOf: "2026-11-12", historyDays: 260, rates: [] });
     expect(ranked.at(-1)?.symbol).toBe("THIN");
     expect(ranked.at(-1)?.excluded).toBe(true);
   });

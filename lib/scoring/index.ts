@@ -7,6 +7,7 @@ import { resultsInfo } from "../results";
 import { accumulation } from "./accumulation";
 import { bearishWarnings } from "./warnings";
 import { planEntry } from "./entry";
+import { type MoneyCondition, moneyCondition } from "./money";
 import { type MarketDay, marketSeries, type Regime } from "./regime";
 import { scoreRisk } from "./risk";
 import { scoreTechnical } from "./technical";
@@ -42,14 +43,14 @@ export function sectorStats(stocks: StockData[]): Map<string, SectorStats> {
 }
 
 // `fundamental` overrides the fundamental score (the backtest has no past reports, so it uses a neutral value).
-export type ScoreOptions = { regime?: Regime; fundamental?: number };
+export type ScoreOptions = { regime?: Regime; fundamental?: number; money?: MoneyCondition | null };
 
 export function scoreStock(s: StockData, sector: SectorStats, asOf: string, horizon: Horizon = HORIZONS[DEFAULT_HORIZON], opts: ScoreOptions = {}): Pick | null {
   const last = s.candles.at(-1), prev = s.candles.at(-2);
   if (!last) return null;
   const f = scoreFundamental(s, last.close, sector);
   const t = scoreTechnical(s.candles, s.snapshot);
-  const r = scoreRisk(s.candles, s.actions, asOf, s.snapshot);
+  const r = scoreRisk(s.candles, s.actions, s.snapshot);
   const w = horizon.weights;
   const fScore = opts.fundamental ?? f.score;
   const total = Math.round(fScore * w.fundamental + t.score * w.technical + r.score * w.risk);
@@ -58,6 +59,7 @@ export function scoreStock(s: StockData, sector: SectorStats, asOf: string, hori
     warnings,
     candles: s.candles, snap: s.snapshot, atr: r.atr ?? last.close * 0.03, total, excluded: r.excluded, spiked: r.spiked,
     days: horizon.days, targetCap: horizon.targetCap, stopAtr: horizon.stopAtr, regime: opts.regime,
+    tightMoneyRate: opts.money?.tight ? opts.money.rate : undefined,
   });
   const gain = entry.target - entry.entryHigh, risk = entry.entryHigh - entry.stopLoss;
   return {
@@ -90,8 +92,9 @@ export function marketToday(ds: DataSource): MarketDay | null {
 
 export function rankStocks(ds: DataSource, horizon: Horizon = HORIZONS[DEFAULT_HORIZON], market: MarketDay | null = marketToday(ds)): Pick[] {
   const stats = sectorStats(ds.stocks);
+  const money = moneyCondition(ds.rates, ds.asOf);
   return ds.stocks
-    .map((s) => scoreStock(s, stats.get(s.company.sector) ?? { pe: null, pbv: null }, ds.asOf, horizon, { regime: market?.regime }))
+    .map((s) => scoreStock(s, stats.get(s.company.sector) ?? { pe: null, pbv: null }, ds.asOf, horizon, { regime: market?.regime, money }))
     .filter((p): p is Pick => p !== null)
     .sort((a, b) => Number(a.excluded) - Number(b.excluded) || b.total - a.total);
 }

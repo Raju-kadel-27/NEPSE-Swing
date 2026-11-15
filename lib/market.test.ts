@@ -21,14 +21,14 @@ describe("settlement lock risk", () => {
     closes.map((c, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, open: c, high: c * 1.01, low: c * 0.99, close: c, volume: 100_000 }));
 
   it("flags and penalises a 5-day spike", () => {
-    const calm = scoreRisk(series([...Array(25).fill(100), 100, 101, 101, 102, 102]), [], "2026-11-13");
-    const spike = scoreRisk(series([...Array(25).fill(100), 100, 104, 108, 112, 116]), [], "2026-11-13");
+    const calm = scoreRisk(series([...Array(25).fill(100), 100, 101, 101, 102, 102]), []);
+    const spike = scoreRisk(series([...Array(25).fill(100), 100, 104, 108, 112, 116]), []);
     expect(spike.flags.some((f) => f.includes("pullback is likely"))).toBe(true);
     expect(calm.flags.some((f) => f.includes("pullback is likely"))).toBe(false);
     expect(spike.score).toBeLessThan(calm.score);
   });
   it("uses the previous close when only one day of history exists", () => {
-    const r = scoreRisk(series([107]), [], "2026-11-13", { prevClose: 100 });
+    const r = scoreRisk(series([107]), [], { prevClose: 100 });
     expect(r.flags.some((f) => f.includes("Up 7% in 1 day"))).toBe(true);
     expect(r.lockMovePct).not.toBeNull();
   });

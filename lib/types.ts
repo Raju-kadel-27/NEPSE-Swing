@@ -1,6 +1,7 @@
 import type { ResultsInfo } from "./results";
 import type { Accumulation } from "./scoring/accumulation";
 import type { Signal } from "./scoring/entry";
+import type { RateDay } from "./scoring/money";
 
 export type Candle = { date: string; open: number; high: number; low: number; close: number; volume: number; turnover?: number; prevClose?: number };
 export type Quarter = { fiscalYear: string; quarter: number; eps: number; netWorthPerShare: number; roe: number; npl?: number; car?: number; netProfit?: number };
@@ -36,4 +37,5 @@ export type Pick = {
   results: ResultsInfo & { seenOn: string | null };
   accumulation: Accumulation | null;
 };
-export type DataSource = { stocks: StockData[]; isDemo: boolean; asOf: string; historyDays: number };
+// `rates`: NRB daily interbank rate, oldest first (empty without data).
+export type DataSource = { stocks: StockData[]; isDemo: boolean; asOf: string; historyDays: number; rates: RateDay[] };

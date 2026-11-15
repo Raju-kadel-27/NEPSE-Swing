@@ -1,4 +1,4 @@
-import { ChevronDown, CircleDollarSign, Lightbulb, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, CircleDollarSign, Landmark, Lightbulb, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { MarketStrip } from "@/components/market-strip";
@@ -12,6 +12,7 @@ import { daysToExit, type Horizon, parseHorizon } from "@/lib/horizon";
 import { shortDay, tradeWindow } from "@/lib/market";
 import { isBuyableToday, isPreferredPrice, PREFERRED_MAX_PRICE } from "@/lib/scoring";
 import { BEAR_MIN_SCORE } from "@/lib/scoring/entry";
+import { TIGHT_RATE } from "@/lib/scoring/money";
 
 const steps = (h: Horizon) => [
   { icon: ListChecks, title: "Pick a stock", text: "Start with Buy today: good stocks trading at a sensible price right now." },
@@ -69,6 +70,17 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
       </section>
 
       <MarketStrip {...overview} checked={picks.length} />
+
+      {overview.money?.tight && (
+        <Alert className="border-destructive/40 bg-destructive/5">
+          <Landmark className="text-destructive" />
+          <AlertTitle>Money is tight</AlertTitle>
+          <AlertDescription>
+            Banks are lending to each other at {overview.money.rate}% (NRB interbank rate, 30-day average). In the 2016-2026 backtest, buys made while
+            this rate was {TIGHT_RATE}% or more lost money on average, whatever their score, so no stock is shown as a buy until it eases.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {market?.regime === "bear" && (
         <Alert className="border-destructive/40 bg-destructive/5">

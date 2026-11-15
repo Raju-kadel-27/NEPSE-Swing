@@ -6,7 +6,8 @@ import type { PriceRow } from "../ingest/sharesansar";
 import { adjustCandles } from "../indicators/adjust";
 import type { Action, Candle, DataSource, Pick, StockData } from "../types";
 import { getDb } from "./index";
-import { companies, corporateActions, dailyPrices, quarterlyFinancials, scores, scrapeRuns } from "./schema";
+import type { MoneyRow } from "../ingest/nrb";
+import { companies, companySnapshots, corporateActions, dailyPrices, moneyDaily, quarterlyFinancials, scores, scrapeRuns } from "./schema";
 
 // Not tradeable equity for a 2-3 month swing.
 export const EXCLUDED_SECTORS = ["Corporate Debenture", "Mutual Fund", "Government Bond", "Preferred Stock", "Promotor Share"];
@@ -72,6 +73,12 @@ export async function saveCompany(d: CompanyDetail, name: string, fetchedAt = ne
     };
     await tx.insert(companies).values(row).onConflictDoUpdate({ target: companies.symbol, set: excludedSet(companies, ["symbol"]) });
 
+    const snap = {
+      symbol: d.symbol, date: fetchedAt.toISOString().slice(0, 10), eps: d.eps, epsFiscalYear: d.epsFiscalYear, epsQuarter: d.epsQuarter,
+      pe: d.pe, bookValue: d.bookValue, pbv: d.pbv, sharesOutstanding: d.sharesOutstanding, marketCap: d.marketCap,
+    };
+    await tx.insert(companySnapshots).values(snap).onConflictDoUpdate({ target: [companySnapshots.symbol, companySnapshots.date], set: excludedSet(companySnapshots, ["symbol", "date"]) });
+
     if (d.eps !== null && d.epsFiscalYear && d.epsQuarter) {
       const q = {
         symbol: d.symbol, fiscalYear: d.epsFiscalYear, quarter: d.epsQuarter, eps: d.eps, bookValue: d.bookValue,
@@ -113,6 +120,21 @@ export async function saveScores(asOf: string, horizon: HorizonKey, picks: Pick[
   return values.length;
 }
 
+// Upserts NRB money-market rows; a missing value never overwrites a stored one.
+export async function saveMoney(rows: MoneyRow[]) {
+  const db = getDb();
+  for (const part of chunks(rows, 1000)) {
+    await db.insert(moneyDaily).values(part).onConflictDoUpdate({
+      target: moneyDaily.date,
+      set: {
+        interbankRate: sql`coalesce(excluded.interbank_rate, ${moneyDaily.interbankRate})`,
+        excessLiquidity: sql`coalesce(excluded.excess_liquidity, ${moneyDaily.excessLiquidity})`,
+      },
+    });
+  }
+  return rows.length;
+}
+
 export async function startRun(): Promise<number> {
   const [r] = await getDb().insert(scrapeRuns).values({}).returning({ id: scrapeRuns.id });
   return r.id;
@@ -141,11 +163,12 @@ export async function loadDataSource(historyDays = HISTORY_DAYS): Promise<DataSo
   if (!latest) return null;
 
   const since = sql`(${latest}::date - ${historyDays}::int)`;
-  const [comps, prices, quarters, actions] = await Promise.all([
+  const [comps, prices, quarters, actions, money] = await Promise.all([
     db.select().from(companies).where(notInArray(companies.sector, EXCLUDED_SECTORS)),
     db.select().from(dailyPrices).where(gte(dailyPrices.date, since)).orderBy(dailyPrices.symbol, dailyPrices.date),
     db.select().from(quarterlyFinancials).orderBy(quarterlyFinancials.symbol, quarterlyFinancials.fiscalYear, quarterlyFinancials.quarter),
     db.select().from(corporateActions).orderBy(corporateActions.symbol, corporateActions.fiscalYear),
+    db.select({ date: moneyDaily.date, rate: moneyDaily.interbankRate }).from(moneyDaily).where(sql`${moneyDaily.interbankRate} is not null`).orderBy(moneyDaily.date),
   ]);
 
   const group = <T extends { symbol: string }>(rows: T[]) => {
@@ -189,7 +212,7 @@ export async function loadDataSource(historyDays = HISTORY_DAYS): Promise<DataSo
       },
     });
   }
-  return { stocks, isDemo: false, asOf: latest, historyDays: days };
+  return { stocks, isDemo: false, asOf: latest, historyDays: days, rates: money.map((m) => ({ date: m.date, rate: m.rate! })) };
 }
 
 export async function lastRun() {
