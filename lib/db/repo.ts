@@ -1,4 +1,4 @@
-import { and, desc, eq, getTableColumns, gte, notInArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, notInArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { HorizonKey } from "../horizon";
 import type { CompanyDetail } from "../ingest/merolagani";
@@ -195,4 +195,16 @@ export async function loadDataSource(historyDays = HISTORY_DAYS): Promise<DataSo
 export async function lastRun() {
   const [r] = await getDb().select().from(scrapeRuns).where(and(sql`${scrapeRuns.finishedAt} is not null`)).orderBy(desc(scrapeRuns.id)).limit(1);
   return r ?? null;
+}
+
+// Every saved "Buy today" pick for one holding period, oldest first; the live track record grades these.
+export async function loadPickHistory(horizon: HorizonKey) {
+  return getDb()
+    .select({
+      symbol: scores.symbol, asOf: sql<string>`${scores.asOf}::text`, price: scores.price, total: scores.total, signal: scores.signal,
+      entryLow: scores.entryLow, entryHigh: scores.entryHigh, stopLoss: scores.stopLoss, target: scores.target,
+    })
+    .from(scores)
+    .where(and(eq(scores.horizon, horizon), inArray(scores.signal, ["ready", "breakout"]), gte(scores.total, 60), eq(scores.excluded, false)))
+    .orderBy(asc(scores.asOf), asc(scores.symbol));
 }

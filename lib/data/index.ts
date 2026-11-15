@@ -1,9 +1,10 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { hasDatabase } from "../db";
-import { loadDataSource } from "../db/repo";
+import { loadDataSource, loadPickHistory } from "../db/repo";
 import { HORIZONS, type HorizonKey } from "../horizon";
 import { marketToday, previousDay, rankStocks, zoneChanges } from "../scoring";
 import type { MarketDay } from "../scoring/regime";
+import { gradePicks } from "../track";
 import type { DataSource, Pick, StockData } from "../types";
 import { DEMO_AS_OF, getDemoStocks } from "./demo";
 
@@ -62,4 +63,18 @@ export async function getZoneChanges(horizon: HorizonKey) {
   const prev = previousDay(await dataSource());
   const yesterday = prev ? rankStocks(prev, HORIZONS[horizon]) : [];
   return zoneChanges(await getPicks(horizon), yesterday);
+}
+
+// Saved "Buy today" picks graded against what prices did next; empty in demo mode.
+export async function getTrackRecord(horizon: HorizonKey) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(MARKET_DATA_TAG);
+  const ds = await dataSource();
+  if (ds.isDemo || !hasDatabase()) return { since: null, picks: [] };
+  const saved = await loadPickHistory(horizon);
+  const sector = new Map(ds.stocks.map((s) => [s.company.symbol, s.company.sector]));
+  const candles = new Map(ds.stocks.map((s) => [s.company.symbol, s.candles]));
+  const picks = gradePicks(saved.map((p) => ({ ...p, sector: sector.get(p.symbol) ?? "" })), candles, HORIZONS[horizon].days);
+  return { since: saved[0]?.asOf ?? null, picks };
 }
