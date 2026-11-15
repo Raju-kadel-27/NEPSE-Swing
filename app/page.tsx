@@ -1,17 +1,17 @@
-import { CircleDollarSign, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, CircleDollarSign, Lightbulb, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { HorizonPicker } from "@/components/horizon-picker";
+import { MarketStrip } from "@/components/market-strip";
 import { PicksExplorer } from "@/components/picks/picks-explorer";
 import { ZoneAlerts } from "@/components/picks/zone-alerts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getMarket, getMeta, getPicks, getZoneChanges } from "@/lib/data";
+import { getMarketOverview, getMeta, getPicks, getSparklines, getZoneChanges } from "@/lib/data";
 import { longDate } from "@/lib/format";
 import { daysToExit, type Horizon, parseHorizon } from "@/lib/horizon";
 import { shortDay, tradeWindow } from "@/lib/market";
 import { isBuyableToday, isPreferredPrice, PREFERRED_MAX_PRICE } from "@/lib/scoring";
 import { BEAR_MIN_SCORE } from "@/lib/scoring/entry";
-import { REGIME_LABEL } from "@/lib/scoring/regime";
 
 const steps = (h: Horizon) => [
   { icon: ListChecks, title: "Pick a stock", text: "Start with Buy today: good stocks trading at a sensible price right now." },
@@ -24,12 +24,11 @@ function HomeSkeleton() {
     <div className="space-y-8">
       <div className="space-y-3">
         <Skeleton className="h-4 w-64" />
-        <Skeleton className="h-10 w-full max-w-xl" />
-        <Skeleton className="h-12 w-full max-w-2xl" />
+        <Skeleton className="h-9 w-full max-w-xl" />
       </div>
-      <Skeleton className="h-10 w-full max-w-lg" />
+      <Skeleton className="h-28 w-full rounded-2xl" />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-80 rounded-xl" />)}
+        {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-80 rounded-2xl" />)}
       </div>
     </div>
   );
@@ -46,38 +45,30 @@ export default function Home(props: PageProps<"/">) {
 
 async function HomeView({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const horizon = parseHorizon((await searchParams).h);
-  const [ds, picks, market, zone] = await Promise.all([getMeta(), getPicks(horizon.key), getMarket(), getZoneChanges(horizon.key)]);
+  const [ds, picks, overview, zone, sparks] = await Promise.all([getMeta(), getPicks(horizon.key), getMarketOverview(), getZoneChanges(horizon.key), getSparklines()]);
+  const market = overview.last;
   const buyToday = picks.filter((p) => isBuyableToday(p) && isPreferredPrice(p)).length;
-  const up = picks.filter((p) => p.changePct > 0).length;
-  const down = picks.filter((p) => p.changePct < 0).length;
   const { buyDate } = tradeWindow(ds.asOf);
   const exitDays = daysToExit(horizon);
 
   return (
     <div className="space-y-8">
-      <section className="space-y-3">
-        <p className="text-sm font-medium text-primary">For {shortDay(buyDate)} · based on {longDate(ds.asOf)} closing prices</p>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {buyToday > 0 ? <>{buyToday} NEPSE stocks under Rs {PREFERRED_MAX_PRICE} worth buying for {horizon.label}</> : <>No stocks at a good buying price for {horizon.label}</>}
-        </h1>
-        <p className="max-w-2xl text-muted-foreground">
-          We check every listed company&apos;s results, price trend and trading volume, then tell you which ones are at a good price to buy,
-          where to buy, and when to sell. Choose how long you plan to hold and the picks, targets and stops adjust to it.
-        </p>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 text-sm text-muted-foreground">
-          <span>{picks.length} stocks checked</span>
-          <span>
-            Market today: <span className="font-medium text-success">{up} up</span> · <span className="font-medium text-destructive">{down} down</span>
-          </span>
-          {market && (
-            <span>
-              {REGIME_LABEL[market.regime]}: {Math.round(market.breadth * 100)}% of stocks above their 50-day average
-            </span>
-          )}
+      <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-primary">For {shortDay(buyDate)} · based on {longDate(ds.asOf)} closing prices</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
+            {buyToday > 0
+              ? <><span className="text-primary">{buyToday} stocks</span> under Rs {PREFERRED_MAX_PRICE} worth buying for {horizon.label}</>
+              : <>No stocks at a good buying price for {horizon.label}</>}
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
+            Where to buy, where to stop out and where to take profit, for every NEPSE stock, adjusted to how long you hold.
+          </p>
         </div>
+        <HorizonPicker current={horizon} className="shrink-0" />
       </section>
 
-      <HorizonPicker current={horizon} />
+      <MarketStrip {...overview} checked={picks.length} />
 
       {market?.regime === "bear" && (
         <Alert className="border-destructive/40 bg-destructive/5">
@@ -101,23 +92,31 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
         </Alert>
       )}
 
-      <section aria-label="How to use these picks" className="grid grid-cols-1 divide-y rounded-xl border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        {steps(horizon).map((s, i) => (
-          <div key={s.title} className="flex gap-3 p-3 sm:p-4">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <s.icon className="size-4" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold"><span className="text-muted-foreground">{i + 1}.</span> {s.title}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">{s.text}</p>
-            </div>
-          </div>
-        ))}
-      </section>
-
       <ZoneAlerts entered={zone.entered} near={zone.near} picks={picks} horizon={horizon} />
 
-      <PicksExplorer key={horizon.key} picks={picks} horizon={horizon} />
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">Picks</h2>
+          <details className="group w-full rounded-xl border bg-card text-sm open:pb-1 sm:w-auto sm:min-w-80">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <Lightbulb className="size-4 text-primary" /> New here? How to use these picks
+              <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+            </summary>
+            <ol className="space-y-3 px-3 pt-1 pb-2">
+              {steps(horizon).map((st, i) => (
+                <li key={st.title} className="flex gap-3">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><st.icon className="size-3.5" /></span>
+                  <div>
+                    <p className="font-medium">{i + 1}. {st.title}</p>
+                    <p className="text-xs text-muted-foreground">{st.text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </div>
+        <PicksExplorer key={horizon.key} picks={picks} horizon={horizon} sparks={sparks} />
+      </section>
     </div>
   );
 }

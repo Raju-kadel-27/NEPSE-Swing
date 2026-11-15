@@ -3,7 +3,7 @@ import { hasDatabase } from "../db";
 import { loadDataSource, loadPickHistory } from "../db/repo";
 import { HORIZONS, type HorizonKey } from "../horizon";
 import { marketToday, previousDay, rankStocks, zoneChanges } from "../scoring";
-import type { MarketDay } from "../scoring/regime";
+import { type MarketDay, marketSeries } from "../scoring/regime";
 import { gradePicks } from "../track";
 import type { DataSource, Pick, StockData } from "../types";
 import { DEMO_AS_OF, getDemoStocks } from "./demo";
@@ -45,6 +45,39 @@ export async function getMarket(): Promise<MarketDay | null> {
   cacheLife("hours");
   cacheTag(MARKET_DATA_TAG);
   return marketToday(await dataSource());
+}
+
+// Recent equal-weight index path for the market strip, with today's reading and the day's change.
+export async function getMarketOverview(days = 120) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(MARKET_DATA_TAG);
+  const ds = await dataSource();
+  const series = marketSeries(ds.stocks.map((s) => s.candles)).slice(-days);
+  const last = series.at(-1), prev = series.at(-2);
+  let up = 0, down = 0, flat = 0;
+  for (const s of ds.stocks) {
+    const [a, b] = s.candles.slice(-2);
+    if (!a || !b || b.date !== ds.asOf) continue;
+    if (b.close > a.close) up++;
+    else if (b.close < a.close) down++;
+    else flat++;
+  }
+  return {
+    points: series.map((d) => d.index),
+    last: last && last.date === ds.asOf ? last : null,
+    changePct: last && prev ? (last.index / prev.index - 1) * 100 : null,
+    up, down, flat,
+  };
+}
+
+// Last N closes per symbol, for the small price charts on pick cards.
+export async function getSparklines(n = 60): Promise<Record<string, number[]>> {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(MARKET_DATA_TAG);
+  const ds = await dataSource();
+  return Object.fromEntries(ds.stocks.map((s) => [s.company.symbol, s.candles.slice(-n).map((c) => c.close)]));
 }
 
 // Ranked picks for one holding period, cached per period.

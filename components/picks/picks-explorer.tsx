@@ -46,7 +46,7 @@ const SORTS: Record<SortKey, { label: string; fn: (a: Pick, b: Pick) => number }
 type PriceBand = "preferred" | "any";
 const inBand = (p: Pick, band: PriceBand) => band === "any" || isPreferredPrice(p);
 
-export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Horizon }) {
+export function PicksExplorer({ picks, horizon, sparks }: { picks: Pick[]; horizon: Horizon; sparks: Record<string, number[]> }) {
   const [bucket, setBucket] = useState<Bucket>("buy");
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState("all");
@@ -80,12 +80,12 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
 
   return (
     <div className="space-y-4">
-      <Tabs value={bucket} onValueChange={(v) => switchTab(v as Bucket)}>
-        <TabsList className="h-auto w-full justify-start gap-1 p-1 sm:w-auto">
+      <Tabs value={bucket} onValueChange={(v) => switchTab(v as Bucket)} className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <TabsList className="h-auto w-max justify-start gap-1 p-1">
           {(Object.keys(TABS) as Bucket[]).map((b) => {
             const T = TABS[b];
             return (
-              <TabsTrigger key={b} value={b} className="flex-1 gap-1.5 px-3 py-1.5 sm:flex-none">
+              <TabsTrigger key={b} value={b} className="flex-none gap-1.5 px-3 py-1.5">
                 <T.icon className="size-4" />
                 {T.label}
                 <span className="rounded-full bg-background/60 px-1.5 text-xs tabular-nums text-muted-foreground">{counts[b]}</span>
@@ -96,41 +96,43 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
       </Tabs>
       <p className="text-sm text-muted-foreground">{TABS[bucket].hint}</p>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-64">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="relative w-full lg:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a stock, e.g. NABIL" className="pl-8" aria-label="Search stocks" />
         </div>
-        <Select value={sector} onValueChange={setSector}>
-          <SelectTrigger className="w-40" aria-label="Sector"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All sectors</SelectItem>
-            {sectors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={priceBand} onValueChange={(v) => setPriceBand(v as PriceBand)}>
-          <SelectTrigger className="w-40" aria-label="Price range"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="preferred">Under Rs {PREFERRED_MAX_PRICE}</SelectItem>
-            <SelectItem value="any">Any price</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={minGain} onValueChange={setMinGain}>
-          <SelectTrigger className="w-44" aria-label="Minimum profit per share"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {MIN_GAINS.map((g) => <SelectItem key={g} value={String(g)}>{g ? `Profit Rs ${g}+/share` : "Any profit/share"}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-          <SelectTrigger className="w-48" aria-label="Sort by"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORTS).map(([k, s]) => <SelectItem key={k} value={k}>Sort: {s.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <ToggleGroup type="single" variant="outline" value={view} onValueChange={(v) => v && setView(v as "cards" | "table")} aria-label="View" className="ml-auto">
-          <ToggleGroupItem value="cards" aria-label="Card view"><LayoutGrid className="size-4" /></ToggleGroupItem>
-          <ToggleGroupItem value="table" aria-label="Table view"><List className="size-4" /></ToggleGroupItem>
-        </ToggleGroup>
+        <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 lg:mx-0 lg:flex-1 lg:overflow-visible lg:px-0">
+          <Select value={sector} onValueChange={setSector}>
+            <SelectTrigger className="w-40 shrink-0" aria-label="Sector"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sectors</SelectItem>
+              {sectors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={priceBand} onValueChange={(v) => setPriceBand(v as PriceBand)}>
+            <SelectTrigger className="w-36 shrink-0" aria-label="Price range"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="preferred">Under Rs {PREFERRED_MAX_PRICE}</SelectItem>
+              <SelectItem value="any">Any price</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={minGain} onValueChange={setMinGain}>
+            <SelectTrigger className="w-44 shrink-0" aria-label="Minimum profit per share"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {MIN_GAINS.map((g) => <SelectItem key={g} value={String(g)}>{g ? `Profit Rs ${g}+/share` : "Any profit/share"}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+            <SelectTrigger className="w-48 shrink-0" aria-label="Sort by"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(SORTS).map(([k, s]) => <SelectItem key={k} value={k}>Sort: {s.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <ToggleGroup type="single" variant="outline" value={view} onValueChange={(v) => v && setView(v as "cards" | "table")} aria-label="View" className="ml-auto shrink-0">
+            <ToggleGroupItem value="cards" aria-label="Card view"><LayoutGrid className="size-4" /></ToggleGroupItem>
+            <ToggleGroupItem value="table" aria-label="Table view"><List className="size-4" /></ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       {shown.length === 0 ? (
@@ -140,10 +142,10 @@ export function PicksExplorer({ picks, horizon }: { picks: Pick[]; horizon: Hori
         </div>
       ) : view === "cards" ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {shown.map((p) => <PickCard key={p.symbol} p={p} horizon={horizon} />)}
+          {shown.map((p) => <PickCard key={p.symbol} p={p} horizon={horizon} spark={sparks[p.symbol]} />)}
         </div>
       ) : (
-        <PicksTable picks={shown} horizon={horizon} />
+        <PicksTable picks={shown} horizon={horizon} sparks={sparks} />
       )}
     </div>
   );

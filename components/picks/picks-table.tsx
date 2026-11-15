@@ -3,6 +3,7 @@
 import { ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ExternalLinks } from "@/components/external-links";
+import { Sparkline } from "@/components/sparkline";
 import { ChangeText, SignalBadge, toneOf } from "@/components/score";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { num } from "@/lib/format";
@@ -12,15 +13,16 @@ import { cn } from "@/lib/utils";
 
 const scoreText = { success: "text-success", warning: "text-warning", destructive: "text-destructive" };
 
-export function PicksTable({ picks, horizon }: { picks: Pick[]; horizon: Horizon }) {
+export function PicksTable({ picks, horizon, sparks }: { picks: Pick[]; horizon: Horizon; sparks?: Record<string, number[]> }) {
   const router = useRouter();
   return (
-    <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+    <div className="overflow-hidden rounded-2xl border bg-card">
       <Table>
         <TableHeader className="bg-muted/50">
           <TableRow>
             <TableHead className="pl-4">Stock</TableHead>
             <TableHead className="text-right">Price</TableHead>
+            {sparks && <TableHead className="hidden w-28 md:table-cell">60 days</TableHead>}
             <TableHead>What to do</TableHead>
             <TableHead className="hidden text-right xl:table-cell">EPS</TableHead>
             <TableHead className="hidden text-right xl:table-cell">P/E</TableHead>
@@ -45,6 +47,11 @@ export function PicksTable({ picks, horizon }: { picks: Pick[]; horizon: Horizon
                 <div className="tabular-nums">{num(p.price)}</div>
                 <ChangeText pct={p.changePct} className="text-xs" />
               </TableCell>
+              {sparks && (
+                <TableCell className="hidden md:table-cell">
+                  <Sparkline points={sparks[p.symbol] ?? []} band={[p.entryLow, p.entryHigh]} height={28} className="w-24" />
+                </TableCell>
+              )}
               <TableCell>
                 <SignalBadge signal={p.signal} />
                 {p.signal === "wait" && <div className="mt-1 text-xs text-warning tabular-nums">{p.aboveZonePct}% above buy price</div>}

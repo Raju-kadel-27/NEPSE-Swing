@@ -2,8 +2,8 @@ import { num } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // Horizontal ladder from stop to target: red risk area, highlighted buy zone, green upside, and a marker at today's price.
-export function ZoneBar({ stop, low, high, target, price, compact, className }: {
-  stop: number; low: number; high: number; target: number; price: number; compact?: boolean; className?: string;
+export function ZoneBar({ stop, low, high, target, price, compact, caption = true, className }: {
+  stop: number; low: number; high: number; target: number; price: number; compact?: boolean; caption?: boolean; className?: string;
 }) {
   const min = Math.min(stop, price) * 0.995;
   const max = Math.max(target, price) * 1.005;
@@ -21,7 +21,7 @@ export function ZoneBar({ stop, low, high, target, price, compact, className }: 
           title={`Last price ${num(price)}`}
         />
       </div>
-      {compact ? (
+      {!caption ? null : compact ? (
         <p className="text-[11px] text-muted-foreground">
           <span className={cn("mr-1 inline-block size-2 rounded-full align-middle", inZone ? "bg-success" : "bg-foreground")} />
           Today&apos;s price {num(price)}{inZone ? ", inside the buy range" : price > high ? ", above the buy range" : ", below the buy range"}
