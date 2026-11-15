@@ -85,7 +85,7 @@ const SECTIONS = [
     body: "Measured from the top of the buy zone, the most you should pay.",
     items: [
       "Stop-loss: one ATR below the zone, and 2 to 4 ATR below its top depending on the holding period, so normal swings (and the settlement lock) don't trigger it",
-      "Target: twice the risk above the top of the zone, but no further than the stock usually moves in your holding period, and never more than the period's cap",
+      "Target: twice the risk above the top of the zone, but no further than the stock usually moves in your holding period, and never more than the period's cap. We publish 97% of the way to that level, so a rally that stalls just short still gets sold",
       "NEPSE trades Monday to Friday. Shares bought on a day can be sold 3 trading days later (buy Monday, sell from Thursday)",
       "Public holidays are not accounted for yet",
     ],

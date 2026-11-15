@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Candle, StockData } from "../types";
 import { accumulation } from "./accumulation";
 import { bearishWarnings } from "./warnings";
-import { lowerHighs, planEntry } from "./entry";
+import { lowerHighs, planEntry, TARGET_SHARE } from "./entry";
 import { change1y, rankStocks } from "./index";
 import { scoreFundamental } from "./fundamental";
 import { MIN_TURNOVER, scoreRisk } from "./risk";
@@ -79,7 +79,7 @@ describe("planEntry", () => {
     expect([e.entryLow, e.entryHigh]).toEqual([100, 104]);
     expect(e.supportLabel).toBe("120-day average");
     expect(e.stopLoss).toBe(96); // min(100 - 4, 104 - 8)
-    expect(e.target).toBe(120); // zone top 104 + 2 * 8
+    expect(e.target).toBe(r1(104 + TARGET_SHARE * 16)); // 97% of the way to zone top 104 + 2 * 8
   });
   it("waits when price is above the zone and says how far", () => {
     const e = planEntry({ ...base, candles: one(110), snap: { avg120: 100, avg180: 90 } });
@@ -102,9 +102,9 @@ describe("planEntry", () => {
     expect(planEntry({ ...base, total: 50, candles: one(102), snap: { avg120: 100 } }).signal).toBe("avoid");
     expect(planEntry({ ...base, excluded: true, candles: one(102), snap: { avg120: 100 } }).signal).toBe("avoid");
   });
-  it("caps the target at +35% of the zone top", () => {
+  it("caps the full target at +35% of the zone top, then sells 97% of the way there", () => {
     const e = planEntry({ ...base, atr: 20, candles: one(102), snap: { avg120: 100 } });
-    expect(e.target).toBe(r1(120 * 1.35));
+    expect(e.target).toBe(r1(120 + TARGET_SHARE * (120 * 1.35 - 120)));
   });
 });
 
@@ -129,7 +129,7 @@ describe("lowerHighs", () => {
     // Zone 100-104, target 120; a single peak at 114 sits in between, the 140 top does not.
     const highs = [140, ...Array(10).fill(104), 108, 111, 114, 110, 107, ...Array(10).fill(104)];
     const e = planEntry({ atr: 4, total: 75, excluded: false, spiked: false, candles: highs.map(bar), snap: { avg120: 100 } });
-    expect([e.entryHigh, e.target]).toEqual([104, 120]);
+    expect([e.entryHigh, e.target]).toEqual([104, r1(104 + TARGET_SHARE * 16)]);
     expect(e.firstTarget).toBe(114);
   });
 });

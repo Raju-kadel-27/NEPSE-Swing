@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 export const GLOSSARY = {
   buyAt: "Place a limit order anywhere in this range. Don't pay more than the top number.",
   sellIfBelow: "Your stop-loss. If the price closes below this, sell to keep the loss small.",
-  takeProfit: "The price to aim for within your holding period, sized to how far this stock usually moves in that time. Consider selling some or all here.",
+  takeProfit: "The price to aim for within your holding period, sized to how far this stock usually moves in that time and set slightly below the full move (97% of the way) so near-misses still sell. Sell here.",
   score: "Quality score out of 100: how strong the company, its price trend and its safety to trade look together.",
   company: "Earnings growth, valuation against its sector, return on equity and dividends.",
   trend: "Whether the price is rising, its momentum and how much trading volume is behind it.",
