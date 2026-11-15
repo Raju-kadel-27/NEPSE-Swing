@@ -39,9 +39,10 @@ Run it once each trading day (Monday to Friday, after 3 pm NPT) to build price h
 - `lib/indicators/adjust.ts` – back-adjusts history for bonus and right shares (prices are stored raw).
 - `lib/backtest/` – day-by-day replay with T+3, fill and cost rules; `results/` holds the summaries the app shows.
 - `lib/model/` – features and a small logistic model trained on backtest trades (no external API).
+- `lib/track/` – live track record: grades the saved `scores` picks against later prices with the backtest's rules (`/track-record`).
 - `lib/costs.ts` – broker commission, SEBON and DP fees, capital gains tax.
 - `scripts/` – `scrape.ts` (daily job), `migrate.ts`, `import-json.ts` (one-off import of the old file-based data).
-- `app/` – picks page, stock page, methodology page.
+- `app/` – picks page, stock page, track record page, methodology page.
 
 ## Tables
 

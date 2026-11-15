@@ -20,7 +20,7 @@ export const STRATEGY_LABEL: Record<Strategy, string> = {
   limit_wait: "Limit order at the zone on 'wait' picks",
 };
 // How long an unfilled buy order stays open, in trading days.
-const FILL_DAYS: Record<Strategy, number> = { buy_now: 3, buy_now_regime: 3, limit_wait: 10 };
+export const FILL_DAYS: Record<Strategy, number> = { buy_now: 3, buy_now_regime: 3, limit_wait: 10 };
 const MIN_TOTAL = 60;
 const MAX_WAIT_GAP = 15;
 
