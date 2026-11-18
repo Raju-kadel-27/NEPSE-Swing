@@ -1,4 +1,4 @@
-# NEPSE Picks
+# BuyZone
 
 Ranks NEPSE stocks for a 2-3 month hold from fundamentals (40%), technicals (35%) and risk/liquidity (25%), with a buy zone, stop-loss and target for each pick.
 

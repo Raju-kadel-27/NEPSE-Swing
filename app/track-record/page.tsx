@@ -1,8 +1,9 @@
-import { ChartNoAxesCombined, History, Info, ListChecks } from "lucide-react";
+import { ChartNoAxesCombined, ChevronDown, History, Info, ListChecks } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { HorizonPicker } from "@/components/horizon-picker";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,7 +17,7 @@ import { PREFERRED_MAX_PRICE } from "@/lib/scoring";
 import { type GradedPick, type MoveSummary, type Status, summarizeMoves, summarizeTrack, type TrackSummary } from "@/lib/track";
 import { cn } from "@/lib/utils";
 
-export const metadata: Metadata = { title: "Track record" };
+export const metadata: Metadata = { title: "Performance" };
 
 // Below this many finished trades the averages are mostly noise.
 const MIN_CLOSED = 30;
@@ -50,19 +51,27 @@ async function TrackView({ searchParams }: { searchParams: PageProps<"/track-rec
 
   return (
     <div className="space-y-8">
-      <section className="space-y-3">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-primary"><History className="size-4" /> Live results, not a backtest</p>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">How our &ldquo;Buy today&rdquo; picks actually did</h1>
-        <p className="max-w-2xl text-muted-foreground">
-          Every pick is saved on the day we publish it and never edited. We then grade it against the prices that followed, with the same
-          rules as the backtest: buy only if the price dips into the buy range within 3 trading days, hold at least until the shares can be
-          sold (T+3), and sell at the stop, the target, or the end of the {horizon.label} holding period. Results are after broker fees, SEBON and
-          DP charges and capital gains tax, for a Rs 1 lakh trade.
-        </p>
-        {since && <p className="text-sm text-muted-foreground">Tracking since {longDate(since)}.</p>}
-      </section>
-
-      <HorizonPicker current={horizon} basePath="/track-record" />
+      <PageHeader
+        icon={History}
+        eyebrow="Live results, not a backtest"
+        title={<>How our &ldquo;Buy today&rdquo; picks actually did</>}
+        aside={<>
+          <HorizonPicker current={horizon} basePath="/track-record" className="sm:flex-col sm:items-start sm:gap-2.5 [&>nav]:w-full" />
+          <p className="text-xs text-muted-foreground">{since ? `Tracking since ${longDate(since)}.` : "Tracking starts with the first saved pick."}</p>
+        </>}
+      >
+        <p>Every pick is saved on the day we publish it and never edited, then graded against the prices that followed.</p>
+        <details className="group text-sm">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 font-medium text-foreground [&::-webkit-details-marker]:hidden">
+            How we grade <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <p className="mt-2 text-muted-foreground">
+            Same rules as the backtest: buy only if the price dips into the buy range within 3 trading days, hold at least until the shares can be
+            sold (T+3), and sell at the stop, the target, or the end of the {horizon.label} holding period. Results are after broker fees, SEBON and
+            DP charges and capital gains tax, for a Rs 1 lakh trade.
+          </p>
+        </details>
+      </PageHeader>
 
       {!since ? (
         <Alert>

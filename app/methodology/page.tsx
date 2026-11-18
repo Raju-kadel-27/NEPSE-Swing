@@ -1,7 +1,8 @@
-import { CalendarClock, Crosshair, Database, Gauge, LineChart, ShieldAlert, TriangleAlert } from "lucide-react";
+import { BookOpen, CalendarClock, Crosshair, Database, Gauge, LineChart, ShieldAlert, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { backtestFor } from "@/lib/backtest/results";
@@ -17,7 +18,7 @@ const weightRange = (k: keyof Weights) => {
   return `${Math.min(...ws)}-${Math.max(...ws)}%`;
 };
 
-export const metadata: Metadata = { title: "Methodology" };
+export const metadata: Metadata = { title: "How it works" };
 
 const SECTIONS = [
   {
@@ -111,14 +112,13 @@ const SECTIONS = [
 
 export default function Methodology() {
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">How the picks are made</h1>
-        <p className="mt-2 text-muted-foreground">
+    <div className="mx-auto max-w-4xl space-y-8">
+      <PageHeader icon={BookOpen} eyebrow="Transparent by design" title="How the picks are made">
+        <p>
           Every stock gets a quality score from 0 to 100, built from three parts: Company, Price trend and Safety. Separately, an entry signal says whether today&apos;s price is a good place to buy. Each score comes with the reasons and warnings behind it,
           so you can check the evidence yourself.
         </p>
-      </div>
+      </PageHeader>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[

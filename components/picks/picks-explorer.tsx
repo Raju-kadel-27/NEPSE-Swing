@@ -21,11 +21,11 @@ const isWaiting = (p: Pick) => p.signal === "wait" || ((p.signal === "ready" || 
 
 const TABS: Record<Bucket, { label: string; icon: React.ElementType; hint: string; filter: (p: Pick) => boolean; sort: SortKey; view: "cards" | "table" }> = {
   buy: {
-    label: "Buy today", icon: ShoppingCart, filter: isBuyableToday, sort: "total", view: "cards",
+    label: "Buy today", icon: ShoppingCart, filter: isBuyableToday, sort: "total", view: "table",
     hint: "Good stocks trading inside their buy range right now. Place a limit order inside the range.",
   },
   wait: {
-    label: "Wait for a dip", icon: Hourglass, filter: isWaiting, sort: "nearest", view: "cards",
+    label: "Wait for a dip", icon: Hourglass, filter: isWaiting, sort: "nearest", view: "table",
     hint: "Good stocks that are a bit expensive today. Set a limit order at the top of the buy range and let the price come to you.",
   },
   all: {
