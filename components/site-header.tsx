@@ -35,11 +35,11 @@ export function SiteHeader({ status }: { status: React.ReactNode }) {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/65">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:gap-8 sm:px-6">
-        <Link href="/" className="flex items-center gap-2.5" aria-label="BuyZone home">
+        <Link href="/" className="flex items-center gap-2.5" aria-label="NEPSE Swing home">
           <Logo />
-          <span className="hidden text-base font-semibold tracking-tight sm:inline">Buy<span className="text-primary">Zone</span></span>
+          <span className="hidden text-base font-semibold tracking-tight sm:inline">NEPSE <span className="text-primary">Swing</span></span>
         </Link>
-        <nav aria-label="Main" className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
+        <nav aria-label="Main" className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden text-sm sm:overflow-visible">
           {NAV.map((n) => {
             const active = n.href === "/" ? path === "/" || path.startsWith("/stock") : path.startsWith(n.href);
             return (
@@ -48,13 +48,12 @@ export function SiteHeader({ status }: { status: React.ReactNode }) {
                 href={n.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 whitespace-nowrap transition-colors sm:px-3",
+                  "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 whitespace-nowrap transition-colors sm:px-3",
                   active ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 <n.icon className="hidden size-4 sm:block" />
                 {n.label}
-                {active && <span aria-hidden className="absolute inset-x-3 -bottom-[13px] hidden h-0.5 rounded-full bg-primary sm:block" />}
               </Link>
             );
           })}
