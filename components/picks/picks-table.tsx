@@ -26,7 +26,7 @@ export function PicksTable({ picks, horizon, sparks }: { picks: Pick[]; horizon:
             <TableHead>What to do</TableHead>
             <TableHead className="hidden text-right xl:table-cell">EPS</TableHead>
             <TableHead className="hidden text-right xl:table-cell">P/E</TableHead>
-            <TableHead className="hidden text-right lg:table-cell">1Y</TableHead>
+            <TableHead className="hidden text-right lg:table-cell">Yield</TableHead>
             <TableHead className="hidden text-right md:table-cell">Buy at</TableHead>
             <TableHead className="hidden text-right lg:table-cell">Sell if below</TableHead>
             <TableHead className="hidden text-right lg:table-cell">Take profit</TableHead>
