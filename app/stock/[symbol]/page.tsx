@@ -124,7 +124,7 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
         <ArrowLeft className="size-4" /> All picks
       </Link>
 
-      <header className="flex flex-wrap items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-4 rounded-3xl border bg-card p-5 sm:p-6">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-3xl font-semibold tracking-tight">{pick.symbol}</h1>
@@ -139,7 +139,9 @@ async function StockView({ params, searchParams }: { params: PageProps<"/stock/[
         </div>
       </header>
 
-      <HorizonPicker current={horizon} basePath={`/stock/${pick.symbol}`} />
+      <div className="rounded-2xl border bg-card px-4 py-3">
+        <HorizonPicker current={horizon} basePath={`/stock/${pick.symbol}`} className="sm:justify-between" />
+      </div>
 
       <Card className={cn("border-2 ring-0", DECISION_STYLE[pick.signal])}>
         <CardContent className="space-y-5">

@@ -1,4 +1,4 @@
-import { ChevronDown, CircleDollarSign, Landmark, Lightbulb, ListChecks, ShieldCheck, TrendingDown, TriangleAlert } from "lucide-react";
+import { CalendarDays, ChevronDown, CircleDollarSign, Crosshair, Landmark, Lightbulb, ListChecks, ShieldCheck, Target, TrendingDown, TriangleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { MarketStrip } from "@/components/market-strip";
@@ -54,19 +54,40 @@ async function HomeView({ searchParams }: { searchParams: PageProps<"/">["search
 
   return (
     <div className="space-y-8">
-      <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-primary">For {shortDay(buyDate)} · based on {longDate(ds.asOf)} closing prices</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
-            {buyToday > 0
-              ? <><span className="text-primary">{buyToday} stocks</span> under Rs {PREFERRED_MAX_PRICE} worth buying for {horizon.label}</>
-              : <>No stocks at a good buying price for {horizon.label}</>}
-          </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
-            Where to buy, where to stop out and where to take profit, for every NEPSE stock, adjusted to how long you hold.
-          </p>
+      <section className="relative overflow-hidden rounded-3xl border bg-card">
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_90%_at_0%_0%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent),radial-gradient(40%_70%_at_100%_100%,color-mix(in_oklch,var(--success)_10%,transparent),transparent)]" />
+        <div className="relative grid gap-6 p-5 sm:p-7 lg:grid-cols-[1fr_auto] lg:items-center lg:gap-10 lg:p-8">
+          <div className="space-y-4">
+            <p className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border bg-background/70 py-1 pr-3 pl-2.5 text-xs font-medium backdrop-blur">
+              <CalendarDays className="size-3.5 text-primary" />
+              <span>Buy window: {shortDay(buyDate)}</span>
+              <span className="text-muted-foreground">· from {longDate(ds.asOf)} close</span>
+            </p>
+            <h1 className="max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-[2.6rem] lg:leading-[1.1]">
+              {buyToday > 0
+                ? <><span className="bg-gradient-to-r from-primary to-success bg-clip-text text-transparent tabular-nums">{buyToday}</span> stocks under Rs {PREFERRED_MAX_PRICE} worth buying for {horizon.label}</>
+                : <>No stocks at a good buying price for {horizon.label}</>}
+            </h1>
+            <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
+              Where to buy, where to stop out and where to take profit, for every NEPSE stock, adjusted to how long you hold.
+            </p>
+            <ul className="flex flex-wrap gap-2 text-xs font-medium">
+              {[
+                { icon: Crosshair, label: "Buy range", tone: "text-primary" },
+                { icon: ShieldCheck, label: "Stop-loss", tone: "text-destructive" },
+                { icon: Target, label: "Profit target", tone: "text-success" },
+              ].map((f) => (
+                <li key={f.label} className="inline-flex items-center gap-1.5 rounded-lg border bg-background/70 px-2.5 py-1.5 backdrop-blur">
+                  <f.icon className={`size-3.5 ${f.tone}`} /> {f.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="space-y-2.5 rounded-2xl border bg-background/80 p-4 shadow-sm backdrop-blur lg:w-[22rem]">
+            <HorizonPicker current={horizon} className="sm:flex-col sm:items-start sm:gap-2.5 [&>nav]:w-full" />
+            <p className="text-xs text-muted-foreground">Buy ranges, stops and targets update for the period you pick.</p>
+          </div>
         </div>
-        <HorizonPicker current={horizon} className="shrink-0" />
       </section>
 
       <MarketStrip {...overview} checked={picks.length} />

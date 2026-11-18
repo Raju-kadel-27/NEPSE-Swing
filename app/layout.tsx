@@ -12,7 +12,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: "NEPSE Picks", template: "%s · NEPSE Picks" },
+  title: { default: "BuyZone", template: "%s · BuyZone" },
   description: "Ranked NEPSE stock ideas for a 2-3 month holding period, from fundamentals, technicals and risk.",
 };
 
